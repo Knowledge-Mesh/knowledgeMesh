@@ -1,0 +1,20 @@
+# IntelliJ IDEA
+.idea/
+*.iml
+out/
+
+# Cursor (VS Code–like)
+.vscode/
+.cursor/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build folders (common)
+node_modules/
+dist/
+build/
+
+# Logs
+*.log

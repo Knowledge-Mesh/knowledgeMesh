@@ -1,0 +1,2 @@
+api_addr: :8080
+p2p_addr: /ip4/0.0.0.0/udp/0/quic-v1
