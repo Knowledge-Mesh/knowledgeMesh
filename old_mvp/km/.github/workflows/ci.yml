@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  broker:
+    name: Build Broker (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Build
+        working-directory: fabric
+        run: go build -o km-fabric .
+      - name: Vet
+        working-directory: fabric
+        run: go vet ./...
+
+  worker:
+    name: Build Worker (Rust)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build worker
+        run: cargo build --release -p km-worker
+      - name: Build CLI
+        run: cargo build --release -p km-cli
+
+  cross-compile:
+    name: Cross-compile (${{ matrix.target }})
+    needs: [broker, worker]
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      # Rust binaries
+      - name: Build worker + CLI
+        run: cargo build --release --target ${{ matrix.target }} -p km-worker -p km-cli
+
+      # Go broker
+      - name: Build broker
+        working-directory: fabric
+        env:
+          GOOS: ${{ contains(matrix.target, 'apple') && 'darwin' || 'linux' }}
+          GOARCH: ${{ contains(matrix.target, 'x86_64') && 'amd64' || 'arm64' }}
+        run: go build -o km-fabric .
+
+      # Package
+      - name: Package binaries
+        run: |
+          SUFFIX="${{ contains(matrix.target, 'apple') && 'darwin' || 'linux' }}-${{ contains(matrix.target, 'x86_64') && 'x86_64' || 'aarch64' }}"
+          cp target/${{ matrix.target }}/release/km-worker "km-worker-${SUFFIX}"
+          cp target/${{ matrix.target }}/release/mesh "km-cli-${SUFFIX}"
+          cp fabric/km-fabric "km-fabric-${SUFFIX}"
+
+      - name: Upload worker
+        uses: actions/upload-artifact@v4
+        with:
+          name: km-worker-${{ contains(matrix.target, 'apple') && 'darwin' || 'linux' }}-${{ contains(matrix.target, 'x86_64') && 'x86_64' || 'aarch64' }}
+          path: km-worker-*
+      - name: Upload CLI
+        uses: actions/upload-artifact@v4
+        with:
+          name: km-cli-${{ contains(matrix.target, 'apple') && 'darwin' || 'linux' }}-${{ contains(matrix.target, 'x86_64') && 'x86_64' || 'aarch64' }}
+          path: km-cli-*
+      - name: Upload broker
+        uses: actions/upload-artifact@v4
+        with:
+          name: km-fabric-${{ contains(matrix.target, 'apple') && 'darwin' || 'linux' }}-${{ contains(matrix.target, 'x86_64') && 'x86_64' || 'aarch64' }}
+          path: km-fabric-*
+
+  release:
+    name: Create GitHub Release
+    needs: [cross-compile]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          for dir in artifacts/km-*; do
+            name=$(basename "$dir")
+            # find the binary inside the artifact directory
+            find "$dir" -type f | while read f; do
+              cp "$f" "release/$(basename "$f")"
+              chmod +x "release/$(basename "$f")"
+            done
+          done
+          ls -la release/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,128 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  GO_VERSION: '1.22'
+
+jobs:
+  build-rust:
+    name: Build km-worker (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            os: macos-14          # cross-compile Intel from ARM runner
+            platform: darwin-amd64
+          - target: aarch64-apple-darwin
+            os: macos-14          # Apple Silicon runner
+            platform: darwin-arm64
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            platform: linux-amd64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Build km-worker
+        run: cargo build --release --target ${{ matrix.target }} -p km-worker
+
+      - name: Rename binary
+        run: |
+          cp target/${{ matrix.target }}/release/km-worker km-worker-${{ matrix.platform }}
+          chmod +x km-worker-${{ matrix.platform }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: km-worker-${{ matrix.platform }}
+          path: km-worker-${{ matrix.platform }}
+          if-no-files-found: error
+          retention-days: 1
+
+  build-broker:
+    name: Build km-broker (linux-amd64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build km-broker
+        working-directory: fabric
+        env:
+          GOOS: linux
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go build -trimpath -ldflags="-s -w" -o ../km-broker-linux-amd64 .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: km-broker-linux-amd64
+          path: km-broker-linux-amd64
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    name: Create GitHub Release
+    needs: [build-rust, build-broker]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          for dir in artifacts/km-*; do
+            find "$dir" -type f | while read -r f; do
+              cp "$f" "release/$(basename "$f")"
+              chmod +x "release/$(basename "$f")"
+            done
+          done
+          echo "=== Release assets ==="
+          ls -lh release/
+
+      - name: Generate checksums
+        working-directory: release
+        run: |
+          sha256sum km-* > checksums-sha256.txt
+          cat checksums-sha256.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            release/km-worker-darwin-amd64
+            release/km-worker-darwin-arm64
+            release/km-worker-linux-amd64
+            release/km-broker-linux-amd64
+            release/checksums-sha256.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

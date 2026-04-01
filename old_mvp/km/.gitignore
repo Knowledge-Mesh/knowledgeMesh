@@ -1,0 +1,36 @@
+# Build artifacts
+/target
+fabric/km-fabric
+km-fabric
+*.exe
+
+# State files (contain secrets)
+*.state.json
+fabric/ledger.txt
+ledger.txt
+
+# Environment files
+.env
+.env.*
+
+# macOS
+.DS_Store
+
+# Editor
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+
+# Binaries (distributed via GitHub Releases, not in repo)
+km-worker-*
+
+# Local dev config
+.claude/

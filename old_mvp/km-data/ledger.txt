@@ -1,0 +1,92 @@
+{"ts":"2026-03-29T06:57:46Z","event":"initial_credit","user":"e2e-ollama","amount":10,"detail":"genesis"}
+{"ts":"2026-03-29T06:57:57Z","event":"initial_credit","user":"e2e-anthropic","amount":10,"detail":"genesis"}
+{"ts":"2026-03-29T06:58:09Z","event":"initial_credit","user":"e2e-openai","amount":10,"detail":"genesis"}
+{"ts":"2026-03-29T06:58:50Z","event":"initial_credit","user":"e2e-buyer","amount":10,"detail":"genesis"}
+{"ts":"2026-03-29T06:58:51Z","event":"escrow_lock","user":"e2e-buyer","amount":-0.000012,"detail":"km-41d2eb18 escrow locked"}
+{"ts":"2026-03-29T06:58:53Z","event":"escrow_settle","user":"e2e-ollama","amount":0.000003,"detail":"km-41d2eb18 settled 30 tokens @ $0.10/M"}
+{"ts":"2026-03-29T06:58:53Z","event":"escrow_lock","user":"e2e-buyer","amount":-0.00108,"detail":"km-3651f4c3 escrow locked"}
+{"ts":"2026-03-29T06:58:55Z","event":"escrow_settle","user":"e2e-anthropic","amount":0.000198,"detail":"km-3651f4c3 settled 22 tokens @ $9.00/M"}
+{"ts":"2026-03-29T06:58:55Z","event":"escrow_lock","user":"e2e-buyer","amount":-0.00003600000000000001,"detail":"km-83a79bac escrow locked"}
+{"ts":"2026-03-29T06:58:57Z","event":"escrow_settle","user":"e2e-openai","amount":0.000006000000000000001,"detail":"km-83a79bac settled 20 tokens @ $0.30/M"}
+{"ts":"2026-03-29T06:58:57Z","event":"escrow_lock","user":"e2e-buyer","amount":-0.00072,"detail":"km-dea35b99 escrow locked"}
+{"ts":"2026-03-29T06:59:02Z","event":"escrow_settle","user":"e2e-openai","amount":0.00072,"detail":"km-dea35b99 settled 214 tokens @ $6.00/M"}
+{"ts":"2026-03-29T06:59:03Z","event":"escrow_lock","user":"e2e-buyer","amount":-0.00108,"detail":"km-9751211c escrow locked"}
+{"ts":"2026-03-29T06:59:21Z","event":"escrow_settle","user":"e2e-anthropic","amount":0.00108,"detail":"km-9751211c settled 1662 tokens @ $9.00/M"}
+{"ts":"2026-03-29T06:59:22Z","event":"escrow_lock","user":"e2e-buyer","amount":-0.00003600000000000001,"detail":"km-08c11a59 escrow locked"}
+{"ts":"2026-03-29T06:59:23Z","event":"escrow_settle","user":"e2e-openai","amount":0.000005700000000000001,"detail":"km-08c11a59 settled 19 tokens @ $0.30/M"}
+{"ts":"2026-03-29T06:59:55Z","event":"escrow_lock","user":"e2e-buyer","amount":-0.00072,"detail":"km-37a0db2f escrow locked"}
+{"ts":"2026-03-29T07:00:05Z","event":"escrow_settle","user":"e2e-openai","amount":0.00072,"detail":"km-37a0db2f settled 707 tokens @ $6.00/M"}
+{"ts":"2026-03-29T07:00:05Z","event":"escrow_lock","user":"e2e-buyer","amount":-0.00108,"detail":"km-4b99ef40 escrow locked"}
+{"ts":"2026-03-29T07:00:25Z","event":"escrow_settle","user":"e2e-anthropic","amount":0.00108,"detail":"km-4b99ef40 settled 1785 tokens @ $9.00/M"}
+{"ts":"2026-03-29T07:07:38Z","event":"initial_credit","user":"e2e-claude-sub","amount":10,"detail":"genesis"}
+{"ts":"2026-03-29T07:08:07Z","event":"escrow_lock","user":"e2e-buyer","amount":-0.00006,"detail":"km-69d0d656 escrow locked"}
+{"ts":"2026-03-29T07:08:11Z","event":"escrow_settle","user":"e2e-claude-sub","amount":0.0000135,"detail":"km-69d0d656 settled 27 tokens @ $0.50/M"}
+{"ts":"2026-03-29T07:08:41Z","event":"escrow_lock","user":"e2e-buyer","amount":-0.000225,"detail":"km-64d6287b escrow locked"}
+{"ts":"2026-03-29T07:08:43Z","event":"escrow_release","user":"e2e-buyer","amount":0.000225,"detail":"km-64d6287b released — task failed"}
+{"ts":"2026-03-29T07:09:17Z","event":"escrow_lock","user":"e2e-buyer","amount":-0.000225,"detail":"km-31c95c5b escrow locked"}
+{"ts":"2026-03-29T07:09:21Z","event":"escrow_settle","user":"e2e-claude-sub","amount":0.000061875,"detail":"km-31c95c5b settled 33 tokens @ $1.88/M"}
+{"ts":"2026-03-29T07:22:34Z","event":"initial_credit","user":"t-ollama","amount":10,"detail":"genesis"}
+{"ts":"2026-03-29T07:22:42Z","event":"initial_credit","user":"t-anthropic","amount":10,"detail":"genesis"}
+{"ts":"2026-03-29T07:22:50Z","event":"initial_credit","user":"t-openai","amount":10,"detail":"genesis"}
+{"ts":"2026-03-29T07:22:58Z","event":"initial_credit","user":"t-claude-sub","amount":10,"detail":"genesis"}
+{"ts":"2026-03-29T07:23:10Z","event":"initial_credit","user":"t-buyer","amount":10,"detail":"genesis"}
+{"ts":"2026-03-29T07:24:06Z","event":"escrow_lock","user":"t-buyer","amount":-0.000012,"detail":"km-cd58eebd escrow locked"}
+{"ts":"2026-03-29T07:24:08Z","event":"escrow_settle","user":"t-ollama","amount":0.0000024000000000000003,"detail":"km-cd58eebd settled 24 tokens @ $0.10/M"}
+{"ts":"2026-03-29T07:24:08Z","event":"escrow_lock","user":"t-buyer","amount":-0.00108,"detail":"km-18d90007 escrow locked"}
+{"ts":"2026-03-29T07:24:10Z","event":"escrow_settle","user":"t-anthropic","amount":0.000198,"detail":"km-18d90007 settled 22 tokens @ $9.00/M"}
+{"ts":"2026-03-29T07:24:10Z","event":"escrow_lock","user":"t-buyer","amount":-0.00003600000000000001,"detail":"km-ae15eda0 escrow locked"}
+{"ts":"2026-03-29T07:24:11Z","event":"escrow_settle","user":"t-openai","amount":0.000005700000000000001,"detail":"km-ae15eda0 settled 19 tokens @ $0.30/M"}
+{"ts":"2026-03-29T07:24:12Z","event":"escrow_lock","user":"t-buyer","amount":-0.0000144,"detail":"km-6e07bac6 escrow locked"}
+{"ts":"2026-03-29T07:24:13Z","event":"escrow_settle","user":"t-openai","amount":0.00000216,"detail":"km-6e07bac6 settled 18 tokens @ $0.12/M"}
+{"ts":"2026-03-29T07:24:13Z","event":"escrow_lock","user":"t-buyer","amount":-0.00006,"detail":"km-87db675c escrow locked"}
+{"ts":"2026-03-29T07:24:34Z","event":"escrow_settle","user":"t-claude-sub","amount":0.0000105,"detail":"km-87db675c settled 21 tokens @ $0.50/M"}
+{"ts":"2026-03-29T07:24:38Z","event":"escrow_lock","user":"t-buyer","amount":-0.000225,"detail":"km-96cdd951 escrow locked"}
+{"ts":"2026-03-29T07:24:40Z","event":"escrow_release","user":"t-buyer","amount":0.000225,"detail":"km-96cdd951 released — task failed"}
+{"ts":"2026-03-29T07:24:40Z","event":"escrow_lock","user":"t-buyer","amount":-0.00072,"detail":"km-8a60eb6d escrow locked"}
+{"ts":"2026-03-29T07:24:46Z","event":"escrow_settle","user":"t-openai","amount":0.00072,"detail":"km-8a60eb6d settled 653 tokens @ $6.00/M"}
+{"ts":"2026-03-29T07:24:46Z","event":"escrow_lock","user":"t-buyer","amount":-0.00108,"detail":"km-11aa1beb escrow locked"}
+{"ts":"2026-03-29T07:25:06Z","event":"escrow_settle","user":"t-anthropic","amount":0.00108,"detail":"km-11aa1beb settled 1740 tokens @ $9.00/M"}
+{"ts":"2026-03-29T07:25:06Z","event":"escrow_lock","user":"t-buyer","amount":-0.00003600000000000001,"detail":"km-f550c02c escrow locked"}
+{"ts":"2026-03-29T07:25:08Z","event":"escrow_settle","user":"t-openai","amount":0.000005700000000000001,"detail":"km-f550c02c settled 19 tokens @ $0.30/M"}
+{"ts":"2026-03-29T12:51:39Z","event":"initial_credit","user":"v2-ollama","amount":10,"detail":"genesis"}
+{"ts":"2026-03-29T12:51:48Z","event":"initial_credit","user":"v2-anthropic","amount":10,"detail":"genesis"}
+{"ts":"2026-03-29T12:51:58Z","event":"initial_credit","user":"v2-openai","amount":10,"detail":"genesis"}
+{"ts":"2026-03-29T12:52:08Z","event":"initial_credit","user":"v2-claude-sub","amount":10,"detail":"genesis"}
+{"ts":"2026-03-29T12:52:20Z","event":"initial_credit","user":"v2-buyer","amount":10,"detail":"genesis"}
+{"ts":"2026-03-29T12:52:48Z","event":"escrow_lock","user":"v2-buyer","amount":-0.000012,"detail":"km-f56853ec escrow locked"}
+{"ts":"2026-03-29T12:52:50Z","event":"escrow_settle","user":"v2-ollama","amount":0.000003,"detail":"km-f56853ec settled 30 tokens @ $0.10/M"}
+{"ts":"2026-03-29T12:52:50Z","event":"escrow_lock","user":"v2-buyer","amount":-0.00108,"detail":"km-0d1baf63 escrow locked"}
+{"ts":"2026-03-29T12:52:52Z","event":"escrow_settle","user":"v2-anthropic","amount":0.000171,"detail":"km-0d1baf63 settled 19 tokens @ $9.00/M"}
+{"ts":"2026-03-29T12:52:52Z","event":"escrow_lock","user":"v2-buyer","amount":-0.00003600000000000001,"detail":"km-d510109f escrow locked"}
+{"ts":"2026-03-29T12:52:54Z","event":"escrow_settle","user":"v2-openai","amount":0.000004800000000000001,"detail":"km-d510109f settled 16 tokens @ $0.30/M"}
+{"ts":"2026-03-29T12:52:54Z","event":"escrow_lock","user":"v2-buyer","amount":-0.0000144,"detail":"km-ee237bc8 escrow locked"}
+{"ts":"2026-03-29T12:52:56Z","event":"escrow_settle","user":"v2-openai","amount":0.0000018,"detail":"km-ee237bc8 settled 15 tokens @ $0.12/M"}
+{"ts":"2026-03-29T12:52:56Z","event":"escrow_lock","user":"v2-buyer","amount":-0.00006,"detail":"km-6638632e escrow locked"}
+{"ts":"2026-03-29T12:53:02Z","event":"escrow_settle","user":"v2-claude-sub","amount":0.0000105,"detail":"km-6638632e settled 21 tokens @ $0.50/M"}
+{"ts":"2026-03-29T12:53:08Z","event":"escrow_lock","user":"v2-buyer","amount":-0.000225,"detail":"km-6c9ec14c escrow locked"}
+{"ts":"2026-03-29T12:53:09Z","event":"escrow_release","user":"v2-buyer","amount":0.000225,"detail":"km-6c9ec14c released — task failed"}
+{"ts":"2026-03-29T12:53:09Z","event":"escrow_lock","user":"v2-buyer","amount":-0.00072,"detail":"km-0e0f33a8 escrow locked"}
+{"ts":"2026-03-29T12:53:17Z","event":"escrow_settle","user":"v2-openai","amount":0.00072,"detail":"km-0e0f33a8 settled 718 tokens @ $6.00/M"}
+{"ts":"2026-03-29T12:53:18Z","event":"escrow_lock","user":"v2-buyer","amount":-0.00108,"detail":"km-c37a4de1 escrow locked"}
+{"ts":"2026-03-29T12:53:39Z","event":"escrow_settle","user":"v2-anthropic","amount":0.00108,"detail":"km-c37a4de1 settled 2001 tokens @ $9.00/M"}
+{"ts":"2026-03-29T12:53:39Z","event":"escrow_lock","user":"v2-buyer","amount":-0.00003600000000000001,"detail":"km-67547bd1 escrow locked"}
+{"ts":"2026-03-29T12:53:41Z","event":"escrow_settle","user":"v2-openai","amount":0.000005700000000000001,"detail":"km-67547bd1 settled 19 tokens @ $0.30/M"}
+{"ts":"2026-03-29T12:53:41Z","event":"escrow_lock","user":"v2-buyer","amount":-0.000012,"detail":"km-a6974e31 escrow locked"}
+{"ts":"2026-03-29T12:53:42Z","event":"escrow_settle","user":"v2-ollama","amount":0.0000052,"detail":"km-a6974e31 settled 52 tokens @ $0.10/M"}
+{"ts":"2026-03-30T10:10:21Z","event":"initial_credit","user":"ollama-arkid","amount":10,"detail":"genesis"}
+{"ts":"2026-03-30T10:48:17Z","event":"initial_credit","user":"ollama-arkid-1-llama","amount":10,"detail":"genesis"}
+{"ts":"2026-03-30T10:50:34Z","event":"escrow_lock","user":"ollama-arkid-1-llama","amount":-0.000012,"detail":"task-f49239ff escrow locked"}
+{"ts":"2026-03-30T10:50:38Z","event":"escrow_settle","user":"ollama-arkid-1-llama","amount":0.000004000000000000001,"detail":"task-f49239ff settled 40 tokens @ $0.10/M"}
+{"ts":"2026-03-30T10:50:46Z","event":"escrow_lock","user":"ollama-arkid-1-llama","amount":-0.000012,"detail":"task-74377396 escrow locked"}
+{"ts":"2026-03-30T10:50:56Z","event":"escrow_release","user":"ollama-arkid-1-llama","amount":0.000012,"detail":"task-74377396 released — task failed"}
+{"ts":"2026-03-30T10:53:19Z","event":"escrow_lock","user":"ollama-arkid-1-llama","amount":-0.000012,"detail":"task-919674d4 escrow locked"}
+{"ts":"2026-03-30T10:53:20Z","event":"escrow_settle","user":"ollama-arkid-1-llama","amount":0.000004000000000000001,"detail":"task-919674d4 settled 40 tokens @ $0.10/M"}
+{"ts":"2026-03-30T10:59:10Z","event":"initial_credit","user":"buy-arkid","amount":10,"detail":"genesis"}
+{"ts":"2026-03-30T10:59:56Z","event":"escrow_lock","user":"buy-arkid","amount":-0.000012,"detail":"task-0db107bb escrow locked"}
+{"ts":"2026-03-30T10:59:59Z","event":"escrow_settle","user":"ollama-arkid-1-llama","amount":0.000004000000000000001,"detail":"task-0db107bb settled 40 tokens @ $0.10/M"}
+{"ts":"2026-03-30T12:59:21Z","event":"escrow_lock","user":"buy-arkid","amount":-0.000012,"detail":"task-e44b98b9 escrow locked"}
+{"ts":"2026-03-30T12:59:24Z","event":"escrow_settle","user":"ollama-arkid-1-llama","amount":0.0000045,"detail":"task-e44b98b9 settled 45 tokens @ $0.10/M"}
+{"ts":"2026-03-30T12:59:40Z","event":"escrow_lock","user":"buy-arkid","amount":-0.000012,"detail":"task-3ed3a67e escrow locked"}
+{"ts":"2026-03-30T12:59:41Z","event":"escrow_settle","user":"ollama-arkid-1-llama","amount":0.0000046,"detail":"task-3ed3a67e settled 46 tokens @ $0.10/M"}
+{"ts":"2026-03-30T13:00:00Z","event":"escrow_lock","user":"buy-arkid","amount":-0.000012,"detail":"task-e6fb87bb escrow locked"}
+{"ts":"2026-03-30T13:00:00Z","event":"escrow_settle","user":"ollama-arkid-1-llama","amount":0.0000044,"detail":"task-e6fb87bb settled 44 tokens @ $0.10/M"}
