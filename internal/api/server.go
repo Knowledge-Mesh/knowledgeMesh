@@ -29,6 +29,7 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.HandleFunc("/v1/models", s.handleModels)
 	mux.HandleFunc("/v1/chat/completions", s.handleChatCompletions)
+	mux.HandleFunc("/v1/messages", s.handleAnthropicMessages)
 	return mux
 }
 
@@ -77,6 +78,37 @@ type openAICompletionUsages struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+}
+
+type anthropicMessagesRequest struct {
+	Model     string             `json:"model"`
+	MaxTokens int                `json:"max_tokens"`
+	Messages  []anthropicMessage `json:"messages"`
+}
+
+type anthropicMessage struct {
+	Role    string          `json:"role"`
+	Content json.RawMessage `json:"content"`
+}
+
+type anthropicMessagesResponse struct {
+	ID         string                  `json:"id"`
+	Type       string                  `json:"type"`
+	Role       string                  `json:"role"`
+	Content    []anthropicContentBlock `json:"content"`
+	Model      string                  `json:"model"`
+	StopReason string                  `json:"stop_reason"`
+	Usage      anthropicMessagesUsage  `json:"usage"`
+}
+
+type anthropicContentBlock struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type anthropicMessagesUsage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
@@ -148,6 +180,47 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req anthropicMessagesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Model) == "" {
+		req.Model = "kmg-mock-1"
+	}
+	prompt := flattenAnthropicMessages(req.Messages)
+	internalReq := types.InferenceRequest{
+		RequestID:  fmt.Sprintf("req-%d", time.Now().UnixNano()),
+		ModelName:  req.Model,
+		ModelType:  "llm",
+		TuningTier: "base",
+		Input:      prompt,
+	}
+	internalResp := runMockInference(internalReq)
+
+	resp := anthropicMessagesResponse{
+		ID:   "msg_" + internalResp.RequestID,
+		Type: "message",
+		Role: "assistant",
+		Content: []anthropicContentBlock{
+			{Type: "text", Text: internalResp.Output},
+		},
+		Model:      internalResp.ModelName,
+		StopReason: "end_turn",
+		Usage: anthropicMessagesUsage{
+			InputTokens:  internalResp.TokenUsage.InputTokens,
+			OutputTokens: internalResp.TokenUsage.OutputTokens,
+		},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
 func flattenMessages(messages []openAIChatMessage) string {
 	if len(messages) == 0 {
 		return ""
@@ -160,6 +233,37 @@ func flattenMessages(messages []openAIChatMessage) string {
 		lines = append(lines, m.Content)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func flattenAnthropicMessages(messages []anthropicMessage) string {
+	lines := make([]string, 0, len(messages))
+	for _, m := range messages {
+		text := extractAnthropicText(m.Content)
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		lines = append(lines, text)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func extractAnthropicText(raw json.RawMessage) string {
+	// Basic compatibility: support either string content or first text block.
+	var asString string
+	if err := json.Unmarshal(raw, &asString); err == nil {
+		return asString
+	}
+	var blocks []map[string]any
+	if err := json.Unmarshal(raw, &blocks); err == nil {
+		for _, b := range blocks {
+			if t, ok := b["type"].(string); ok && t == "text" {
+				if txt, ok := b["text"].(string); ok {
+					return txt
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func runMockInference(req types.InferenceRequest) types.InferenceResponse {
