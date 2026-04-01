@@ -48,18 +48,21 @@ type NodeMetadata struct {
 }
 
 type SellerNode struct {
-	PeerID        string        `json:"peerId"`
-	Skills        []Skill       `json:"skills"`
-	ModelName     string        `json:"modelName"`
-	ModelType     string        `json:"modelType"`
-	TuningTier    string        `json:"tuningTier"`
-	Price         float64       `json:"price"`
-	Reputation    float64       `json:"reputation"`
-	OnDuty        bool          `json:"onDuty"`
-	TokenLimits   RateLimits    `json:"tokenLimits"`
-	ResourceHints ResourceHints `json:"resourceHints"`
-	Usage         UsageCounters `json:"usage"`
-	Metadata      NodeMetadata  `json:"metadata"`
+	PeerID        string                 `json:"peerId"`
+	Skills        []Skill                `json:"skills"`
+	ModelName     string                 `json:"modelName"`
+	ModelType     string                 `json:"modelType"`
+	TuningTier    string                 `json:"tuningTier"`
+	Price         float64                `json:"price"`
+	Reputation    float64                `json:"reputation"`
+	OnDuty        bool                   `json:"onDuty"`
+	TokenLimits   RateLimits             `json:"tokenLimits"`
+	ResourceHints ResourceHints          `json:"resourceHints"`
+	Usage         UsageCounters          `json:"usage"`
+	Metadata      NodeMetadata           `json:"metadata"`
+	Anthropic     *AnthropicSellerConfig `json:"anthropic,omitempty"`
+	OpenAI        *OpenAISellerConfig    `json:"openai,omitempty"`
+	Ollama        *OllamaSellerConfig    `json:"ollama,omitempty"`
 }
 
 type BuyerNode struct {

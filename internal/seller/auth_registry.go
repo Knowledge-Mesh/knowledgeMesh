@@ -135,6 +135,21 @@ func (m *SellerStateManager) TurnOnDuty(peerID string) (types.SellerNode, error)
 	return m.reg.setOnDuty(peerID, true)
 }
 
+// TurnOnDutyWithAnthropic turns the seller on-duty and stores Anthropic integration config (API key via env only).
+func (m *SellerStateManager) TurnOnDutyWithAnthropic(peerID string, cfg types.AnthropicSellerConfig) (types.SellerNode, error) {
+	return m.reg.setOnDutyWithAnthropic(peerID, cfg)
+}
+
+// TurnOnDutyWithOpenAI turns the seller on-duty and stores OpenAI integration config (API key via env only).
+func (m *SellerStateManager) TurnOnDutyWithOpenAI(peerID string, cfg types.OpenAISellerConfig) (types.SellerNode, error) {
+	return m.reg.setOnDutyWithOpenAI(peerID, cfg)
+}
+
+// TurnOnDutyWithOllama turns the seller on-duty and stores Ollama integration config (mock backend until wired).
+func (m *SellerStateManager) TurnOnDutyWithOllama(peerID string, cfg types.OllamaSellerConfig) (types.SellerNode, error) {
+	return m.reg.setOnDutyWithOllama(peerID, cfg)
+}
+
 func (m *SellerStateManager) TurnOffDuty(peerID string) (types.SellerNode, error) {
 	return m.reg.setOnDuty(peerID, false)
 }
@@ -217,6 +232,90 @@ func (r *Registry) setOnDuty(peerID string, onDuty bool) (types.SellerNode, erro
 	node := data.Sellers[idx].Metadata
 	node.OnDuty = onDuty
 	node.Metadata.OnDuty = onDuty
+	data.Sellers[idx].Metadata = node
+
+	if err := r.save(data); err != nil {
+		return types.SellerNode{}, err
+	}
+	return node, nil
+}
+
+func (r *Registry) setOnDutyWithAnthropic(peerID string, cfg types.AnthropicSellerConfig) (types.SellerNode, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	data, err := r.load()
+	if err != nil {
+		return types.SellerNode{}, err
+	}
+	idx := findSellerByPeerID(data.Sellers, peerID)
+	if idx == -1 {
+		return types.SellerNode{}, ErrSellerNotFound
+	}
+
+	node := data.Sellers[idx].Metadata
+	node.OnDuty = true
+	node.Metadata.OnDuty = true
+	c := cfg
+	node.Anthropic = &c
+	node.OpenAI = nil
+	node.Ollama = nil
+	data.Sellers[idx].Metadata = node
+
+	if err := r.save(data); err != nil {
+		return types.SellerNode{}, err
+	}
+	return node, nil
+}
+
+func (r *Registry) setOnDutyWithOpenAI(peerID string, cfg types.OpenAISellerConfig) (types.SellerNode, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	data, err := r.load()
+	if err != nil {
+		return types.SellerNode{}, err
+	}
+	idx := findSellerByPeerID(data.Sellers, peerID)
+	if idx == -1 {
+		return types.SellerNode{}, ErrSellerNotFound
+	}
+
+	node := data.Sellers[idx].Metadata
+	node.OnDuty = true
+	node.Metadata.OnDuty = true
+	c := cfg
+	node.OpenAI = &c
+	node.Anthropic = nil
+	node.Ollama = nil
+	data.Sellers[idx].Metadata = node
+
+	if err := r.save(data); err != nil {
+		return types.SellerNode{}, err
+	}
+	return node, nil
+}
+
+func (r *Registry) setOnDutyWithOllama(peerID string, cfg types.OllamaSellerConfig) (types.SellerNode, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	data, err := r.load()
+	if err != nil {
+		return types.SellerNode{}, err
+	}
+	idx := findSellerByPeerID(data.Sellers, peerID)
+	if idx == -1 {
+		return types.SellerNode{}, ErrSellerNotFound
+	}
+
+	node := data.Sellers[idx].Metadata
+	node.OnDuty = true
+	node.Metadata.OnDuty = true
+	c := cfg
+	node.Ollama = &c
+	node.OpenAI = nil
+	node.Anthropic = nil
 	data.Sellers[idx].Metadata = node
 
 	if err := r.save(data); err != nil {

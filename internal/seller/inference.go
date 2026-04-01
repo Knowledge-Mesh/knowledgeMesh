@@ -42,6 +42,11 @@ func NewInferenceService(sellerPeerID string, runner *sandbox.Runner, engine Mod
 	}
 }
 
+// NewInferenceServiceForSeller builds inference using sandbox + Anthropic engine when on-duty config is set.
+func NewInferenceServiceForSeller(node types.SellerNode, runner *sandbox.Runner) *InferenceService {
+	return NewInferenceService(node.PeerID, runner, ModelEngineFromSellerNode(node))
+}
+
 func (s *InferenceService) HandleInference(ctx context.Context, req types.InferenceRequest) (types.InferenceResponse, error) {
 	if s.runner == nil {
 		return types.InferenceResponse{}, ErrInferenceFailed

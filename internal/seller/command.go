@@ -3,6 +3,7 @@ package seller
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/knowledgemeshgrid/knowledgemesh/pkg/types"
@@ -18,7 +19,7 @@ func NewCommand() *cobra.Command {
 		},
 	}
 
-	root.AddCommand(newRegisterCommand(), newLoginCommand())
+	root.AddCommand(newRegisterCommand(), newLoginCommand(), newOnDutyCommand())
 	return root
 }
 
@@ -86,6 +87,96 @@ func newRegisterCommand() *cobra.Command {
 	_ = cmd.MarkFlagRequired("username")
 	_ = cmd.MarkFlagRequired("email")
 	_ = cmd.MarkFlagRequired("password")
+	return cmd
+}
+
+func newOnDutyCommand() *cobra.Command {
+	var (
+		peerID           string
+		anthropicCfgPath string
+		openaiCfgPath    string
+		ollamaCfgPath    string
+	)
+	cmd := &cobra.Command{
+		Use:   "on-duty",
+		Short: "Turn seller on-duty with optional Anthropic, OpenAI, or Ollama config",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path, err := DefaultRegistryPath()
+			if err != nil {
+				return err
+			}
+			reg := NewRegistry(path)
+			mgr := NewSellerStateManager(reg)
+			n := 0
+			if strings.TrimSpace(anthropicCfgPath) != "" {
+				n++
+			}
+			if strings.TrimSpace(openaiCfgPath) != "" {
+				n++
+			}
+			if strings.TrimSpace(ollamaCfgPath) != "" {
+				n++
+			}
+			if n > 1 {
+				return fmt.Errorf("use only one of --anthropic-config, --openai-config, or --ollama-config")
+			}
+			if strings.TrimSpace(ollamaCfgPath) != "" {
+				b, err := os.ReadFile(ollamaCfgPath)
+				if err != nil {
+					return err
+				}
+				var cfg types.OllamaSellerConfig
+				if err := json.Unmarshal(b, &cfg); err != nil {
+					return err
+				}
+				node, err := mgr.TurnOnDutyWithOllama(peerID, cfg)
+				if err != nil {
+					return err
+				}
+				return printJSON(node)
+			}
+			if strings.TrimSpace(openaiCfgPath) != "" {
+				b, err := os.ReadFile(openaiCfgPath)
+				if err != nil {
+					return err
+				}
+				var cfg types.OpenAISellerConfig
+				if err := json.Unmarshal(b, &cfg); err != nil {
+					return err
+				}
+				node, err := mgr.TurnOnDutyWithOpenAI(peerID, cfg)
+				if err != nil {
+					return err
+				}
+				return printJSON(node)
+			}
+			if strings.TrimSpace(anthropicCfgPath) != "" {
+				b, err := os.ReadFile(anthropicCfgPath)
+				if err != nil {
+					return err
+				}
+				var cfg types.AnthropicSellerConfig
+				if err := json.Unmarshal(b, &cfg); err != nil {
+					return err
+				}
+				node, err := mgr.TurnOnDutyWithAnthropic(peerID, cfg)
+				if err != nil {
+					return err
+				}
+				return printJSON(node)
+			}
+			node, err := mgr.TurnOnDuty(peerID)
+			if err != nil {
+				return err
+			}
+			return printJSON(node)
+		},
+	}
+	cmd.Flags().StringVar(&peerID, "peer-id", "", "Seller peer ID")
+	cmd.Flags().StringVar(&anthropicCfgPath, "anthropic-config", "", "JSON file with apiKeyEnv and models")
+	cmd.Flags().StringVar(&openaiCfgPath, "openai-config", "", "JSON file with apiKeyEnv and models")
+	cmd.Flags().StringVar(&ollamaCfgPath, "ollama-config", "", "JSON file with baseURL and models")
+	_ = cmd.MarkFlagRequired("peer-id")
 	return cmd
 }
 
