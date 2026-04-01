@@ -91,6 +91,7 @@ type InferenceRequest struct {
 type InferenceResponse struct {
 	RequestID      string        `json:"requestId"`
 	SellerPeerID   string        `json:"sellerPeerId"`
+	Status         string        `json:"status"`
 	ModelName      string        `json:"modelName"`
 	ModelType      string        `json:"modelType"`
 	TuningTier     string        `json:"tuningTier"`
