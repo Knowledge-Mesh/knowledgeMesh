@@ -13,7 +13,7 @@ import (
 func TestAnthropicMessagesParsesAndFormatsResponse(t *testing.T) {
 	t.Parallel()
 
-	srv := api.NewServer(":0")
+	srv := api.NewServer(":0", nil)
 	payload := map[string]any{
 		"model": "claude-mock",
 		"messages": []map[string]any{
@@ -58,7 +58,7 @@ func TestAnthropicMessagesParsesAndFormatsResponse(t *testing.T) {
 func TestAnthropicMessagesParsesContentBlockArray(t *testing.T) {
 	t.Parallel()
 
-	srv := api.NewServer(":0")
+	srv := api.NewServer(":0", nil)
 	raw := `{
 	  "model":"claude-mock",
 	  "messages":[

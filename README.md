@@ -19,12 +19,31 @@ Build all binaries:
 go build ./cmd/...
 ```
 
-Run core node (API + p2p bootstrap):
+Run core node (API + p2p host, **mock inference** only—no matchmaking or seller calls):
 
 ```bash
 go run ./cmd/knowledgeMesh serve
 go run ./cmd/knowledgeMesh serve --api-addr :8080 --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
 ```
+
+Run the **wired buyer mesh** (HTTP API + libp2p QUIC + matchmaking + remote seller inference):
+
+```bash
+go run ./cmd/knowledgeMesh mesh serve
+go run ./cmd/knowledgeMesh mesh serve --api-addr :8080 --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
+```
+
+Flags for `mesh serve`:
+
+| Flag | Purpose |
+|------|---------|
+| `--api-addr` | HTTP listen address (default `:8080`) |
+| `--p2p-addr` | libp2p QUIC listen multiaddr |
+| `--bootstrap` | Repeatable: seller dial address, e.g. `/ip4/127.0.0.1/udp/4001/quic-v1/p2p/<PeerID>` |
+| `--sellers-catalog` | JSON file: array of `SellerNode` for the matchmaker (peer id must match the seller) |
+| `--demo` | Register/login a demo buyer (`demo@local` / `demo` / `demo`) and log a `X-Session-ID` to stdout |
+
+**Local two-terminal demo:** terminal 1 runs `go run ./cmd/seller serve` (note the printed peer id and bootstrap multiaddr). Terminal 2 runs `mesh serve` with `--bootstrap` set to that multiaddr and `--sellers-catalog` pointing at `examples/local-demo/sellers-catalog.json` after you replace `REPLACE_WITH_SELLER_PEER_ID` with the seller’s peer id.
 
 Run module CLIs:
 
@@ -34,6 +53,15 @@ go run ./cmd/seller start
 go run ./cmd/control start
 go run ./cmd/demo run
 ```
+
+Run a **seller libp2p inference node** (QUIC listener, sandbox + mock engine, inference protocol registered):
+
+```bash
+go run ./cmd/seller serve
+go run ./cmd/seller serve --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1 --skills chat --model-name kmg-mock-1 --price 0
+```
+
+Use the logged **dial this bootstrap** line as `mesh serve --bootstrap`, and align `peerId` in the sellers catalog with the printed **seller peer id**.
 
 Seller registration and login (local JSON registry):
 
@@ -131,11 +159,18 @@ Seller registry path: OS user config directory, e.g. `~/.config/knowledgemesh/se
 
 ### Buyer HTTP API (basic compatibility)
 
-With `go run ./cmd/knowledgeMesh serve` (API + libp2p host):
+With `go run ./cmd/knowledgeMesh serve` (mock inference, optional session not required for chat):
 
 - OpenAI-style: `GET /v1/models`, `POST /v1/chat/completions`
-- Anthropic-style: `GET /v1/models`, `POST /v1/messages`
+- Anthropic-style: `POST /v1/messages`
 - `GET /healthz`
+
+With `go run ./cmd/knowledgeMesh mesh serve` (real inference via matchmaker + libp2p):
+
+- `POST /api/v1/buyer/register` — JSON: `email`, `username`, `password`; returns `buyerId`
+- `POST /api/v1/buyer/login` — JSON: `user`, `password`; returns `sessionId`, `buyerId`
+- `POST /v1/chat/completions` and `POST /v1/messages` require authentication: header `X-Session-ID: <sessionId>` or `Authorization: Bearer <sessionId>`
+- Same OpenAI/Anthropic response shapes as above; errors follow each vendor’s JSON error style where applicable
 
 Run tests:
 
@@ -149,7 +184,8 @@ go test ./...
 - `internal/buyer`: in-memory buyer account/session state, limits, usage accounting, preference updates, prompt submission path
 - `internal/matchmaker`: simple seller selection by skill match, availability, price (ascending), and reputation tie-break (descending)
 - `internal/sandbox`: request-scoped execution runner with timeout + mock executor and redacted seller-safe view
-- `internal/api`: minimal OpenAI- and Anthropic-compatible HTTP handlers for buyers (mock inference path)
+- `internal/api`: OpenAI- and Anthropic-compatible HTTP handlers; mock path (`serve`) or mesh path (`mesh serve`) with buyer register/login
+- `internal/mesh`: buyer runtime wiring matchmaking, seller catalog, and libp2p inference calls
 - `internal/network`: libp2p native peer connections over QUIC, request/response stream helpers, protocol negotiation, static/local bootstrap helpers
 
 ## libp2p Protocols

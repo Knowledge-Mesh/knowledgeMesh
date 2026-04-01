@@ -1,0 +1,20 @@
+[
+  {
+    "peerId": "REPLACE_WITH_SELLER_PEER_ID",
+    "skills": [
+      {
+        "name": "chat",
+        "modelName": "kmg-mock-1",
+        "modelType": "llm",
+        "tuningTier": "base",
+        "price": 0
+      }
+    ],
+    "modelName": "kmg-mock-1",
+    "modelType": "llm",
+    "tuningTier": "base",
+    "price": 0,
+    "reputation": 1,
+    "onDuty": true
+  }
+]

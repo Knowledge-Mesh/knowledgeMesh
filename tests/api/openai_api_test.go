@@ -13,7 +13,7 @@ import (
 func TestGetModelsOpenAIShape(t *testing.T) {
 	t.Parallel()
 
-	srv := api.NewServer(":0")
+	srv := api.NewServer(":0", nil)
 	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	rr := httptest.NewRecorder()
 
@@ -37,7 +37,7 @@ func TestGetModelsOpenAIShape(t *testing.T) {
 func TestChatCompletionsOpenAIShape(t *testing.T) {
 	t.Parallel()
 
-	srv := api.NewServer(":0")
+	srv := api.NewServer(":0", nil)
 	payload := map[string]any{
 		"model": "kmg-mock-1",
 		"messages": []map[string]string{

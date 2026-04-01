@@ -1,21 +1,32 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/knowledgemeshgrid/knowledgemesh/internal/buyer"
 	"github.com/knowledgemeshgrid/knowledgemesh/pkg/types"
 )
 
-type Server struct {
-	Addr string
+// MeshRuntime is implemented by mesh.Runtime: buyer auth + remote inference.
+type MeshRuntime interface {
+	RunInference(ctx context.Context, sessionID string, req types.InferenceRequest) (types.InferenceResponse, error)
+	Register(email, username, password string) (buyer.State, error)
+	Login(userOrEmail, password string) (buyer.State, error)
 }
 
-func NewServer(addr string) *Server {
-	return &Server{Addr: addr}
+type Server struct {
+	Addr string
+	Mesh MeshRuntime
+}
+
+func NewServer(addr string, mesh MeshRuntime) *Server {
+	return &Server{Addr: addr, Mesh: mesh}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -27,6 +38,8 @@ func (s *Server) Handler() http.Handler {
 			"module": "knowledgeMesh",
 		})
 	})
+	mux.HandleFunc("/api/v1/buyer/register", s.handleBuyerRegister)
+	mux.HandleFunc("/api/v1/buyer/login", s.handleBuyerLogin)
 	mux.HandleFunc("/v1/models", s.handleModels)
 	mux.HandleFunc("/v1/chat/completions", s.handleChatCompletions)
 	mux.HandleFunc("/v1/messages", s.handleAnthropicMessages)
@@ -35,6 +48,80 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) ListenAndServe() error {
 	return http.ListenAndServe(s.Addr, s.Handler())
+}
+
+var errNoSession = errors.New("missing session")
+
+func (s *Server) parseSession(r *http.Request) (string, error) {
+	if h := strings.TrimSpace(r.Header.Get("X-Session-ID")); h != "" {
+		return h, nil
+	}
+	auth := strings.TrimSpace(r.Header.Get("Authorization"))
+	if len(auth) > 7 && strings.EqualFold(auth[:7], "bearer ") {
+		return strings.TrimSpace(auth[7:]), nil
+	}
+	return "", errNoSession
+}
+
+type buyerRegisterBody struct {
+	Email    string `json:"email"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type buyerLoginBody struct {
+	User     string `json:"user"`
+	Password string `json:"password"`
+}
+
+func (s *Server) handleBuyerRegister(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.Mesh == nil {
+		http.Error(w, "buyer API not enabled", http.StatusNotImplemented)
+		return
+	}
+	var body buyerRegisterBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeOpenAIError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	st, err := s.Mesh.Register(body.Email, body.Username, body.Password)
+	if err != nil {
+		writeOpenAIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(map[string]string{"buyerId": st.BuyerID})
+}
+
+func (s *Server) handleBuyerLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.Mesh == nil {
+		http.Error(w, "buyer API not enabled", http.StatusNotImplemented)
+		return
+	}
+	var body buyerLoginBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeOpenAIError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	st, err := s.Mesh.Login(body.User, body.Password)
+	if err != nil {
+		writeOpenAIError(w, http.StatusUnauthorized, "invalid credentials")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"sessionId": st.SessionID,
+		"buyerId":   st.BuyerID,
+	})
 }
 
 type openAIModelsResponse struct {
@@ -137,7 +224,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	var req openAIChatCompletionsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		writeOpenAIError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 	if strings.TrimSpace(req.Model) == "" {
@@ -150,9 +237,42 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		ModelType:  "llm",
 		TuningTier: "base",
 		Input:      prompt,
+		Skill: types.Skill{
+			Name:       "chat",
+			ModelName:  req.Model,
+			ModelType:  "llm",
+			TuningTier: "base",
+		},
 	}
 
-	internalResp := runMockInference(internalReq)
+	var internalResp types.InferenceResponse
+	var err error
+	if s.Mesh != nil {
+		sess, errSess := s.parseSession(r)
+		if errSess != nil {
+			writeOpenAIError(w, http.StatusUnauthorized, "missing X-Session-ID or Bearer token")
+			return
+		}
+		internalResp, err = s.Mesh.RunInference(r.Context(), sess, internalReq)
+	} else {
+		internalResp = runMockInference(internalReq)
+	}
+	if err != nil {
+		status := http.StatusBadGateway
+		if errors.Is(err, buyer.ErrInvalidSession) {
+			status = http.StatusUnauthorized
+		}
+		writeOpenAIError(w, status, err.Error())
+		return
+	}
+	if !internalResp.Success {
+		msg := internalResp.Error
+		if msg == "" {
+			msg = "inference failed"
+		}
+		writeOpenAIError(w, http.StatusBadGateway, msg)
+		return
+	}
 
 	resp := openAIChatCompletionsResponse{
 		ID:      "chatcmpl-" + internalResp.RequestID,
@@ -187,7 +307,7 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 	}
 	var req anthropicMessagesRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		writeAnthropicError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 	if strings.TrimSpace(req.Model) == "" {
@@ -200,8 +320,42 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 		ModelType:  "llm",
 		TuningTier: "base",
 		Input:      prompt,
+		Skill: types.Skill{
+			Name:       "chat",
+			ModelName:  req.Model,
+			ModelType:  "llm",
+			TuningTier: "base",
+		},
 	}
-	internalResp := runMockInference(internalReq)
+
+	var internalResp types.InferenceResponse
+	var err error
+	if s.Mesh != nil {
+		sess, errSess := s.parseSession(r)
+		if errSess != nil {
+			writeAnthropicError(w, http.StatusUnauthorized, "missing X-Session-ID or Bearer token")
+			return
+		}
+		internalResp, err = s.Mesh.RunInference(r.Context(), sess, internalReq)
+	} else {
+		internalResp = runMockInference(internalReq)
+	}
+	if err != nil {
+		status := http.StatusBadGateway
+		if errors.Is(err, buyer.ErrInvalidSession) {
+			status = http.StatusUnauthorized
+		}
+		writeAnthropicError(w, status, err.Error())
+		return
+	}
+	if !internalResp.Success {
+		msg := internalResp.Error
+		if msg == "" {
+			msg = "inference failed"
+		}
+		writeAnthropicError(w, http.StatusBadGateway, msg)
+		return
+	}
 
 	resp := anthropicMessagesResponse{
 		ID:   "msg_" + internalResp.RequestID,
@@ -219,6 +373,28 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func writeOpenAIError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"error": map[string]string{
+			"message": msg,
+			"type":    "invalid_request_error",
+		},
+	})
+}
+
+func writeAnthropicError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"error": map[string]string{
+			"type":    "api_error",
+			"message": msg,
+		},
+	})
 }
 
 func flattenMessages(messages []openAIChatMessage) string {
@@ -248,7 +424,6 @@ func flattenAnthropicMessages(messages []anthropicMessage) string {
 }
 
 func extractAnthropicText(raw json.RawMessage) string {
-	// Basic compatibility: support either string content or first text block.
 	var asString string
 	if err := json.Unmarshal(raw, &asString); err == nil {
 		return asString

@@ -24,7 +24,7 @@ func NewServeCommand() *cobra.Command {
 			}
 			defer h.Close()
 
-			server := api.NewServer(apiAddr)
+			server := api.NewServer(apiAddr, nil)
 			log.Printf("api listening on %s", apiAddr)
 			log.Printf("p2p host started with id: %s", h.ID())
 			return server.ListenAndServe()
