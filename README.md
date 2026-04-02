@@ -11,13 +11,39 @@ It is structured so `buyer`, `seller`, and `control` can evolve independently wh
 - `net/http` API
 - `encoding/json` message handling
 
-## Main Commands
+## Compile and run
 
-Build all binaries:
+**Prerequisites:** [Go](https://go.dev/dl/) **1.24+** (see `go.mod`). No other build tools are required.
+
+From the repository root:
 
 ```bash
-go build ./cmd/...
+cd knowledgeMesh   # or your clone path
+go build -o bin/ ./cmd/...
 ```
+
+This writes one binary per `cmd/*` package into `bin/` (for example `bin/knowledgeMesh`, `bin/seller`, `bin/buyer`, `bin/control`, `bin/demo`). To verify the tree compiles and tests pass:
+
+```bash
+go build ./...
+go test ./...
+```
+
+**Run without installing:** use `go run` with a package path (examples below use this). **Run after building:** invoke the binary and pass subcommands/flags the same way:
+
+```bash
+./bin/knowledgeMesh serve
+./bin/knowledgeMesh mesh serve --demo --bootstrap '<multiaddr>' --sellers-catalog examples/local-demo/sellers-catalog.json
+./bin/buyer start --demo --bootstrap '<multiaddr>' --sellers-catalog examples/local-demo/sellers-catalog.json
+./bin/seller serve
+./bin/control start
+```
+
+On Windows, use `bin\knowledgeMesh.exe` etc.
+
+## Main Commands
+
+The examples below use `go run ./cmd/...`; after [compiling](#compile-and-run), replace with `./bin/<name>` (for example `./bin/knowledgeMesh`).
 
 Run core node (API + p2p host, **mock inference** only—no matchmaking or seller calls):
 
@@ -43,15 +69,22 @@ Flags for `mesh serve`:
 | `--sellers-catalog` | JSON file: array of `SellerNode` for the matchmaker (peer id must match the seller) |
 | `--demo` | Register/login a demo buyer (`demo@local` / `demo` / `demo`) and log a `X-Session-ID` to stdout |
 
-**Local two-terminal demo:** terminal 1 runs `go run ./cmd/seller serve` (note the printed peer id and bootstrap multiaddr). Terminal 2 runs `mesh serve` with `--bootstrap` set to that multiaddr and `--sellers-catalog` pointing at `examples/local-demo/sellers-catalog.json` after you replace `REPLACE_WITH_SELLER_PEER_ID` with the seller’s peer id.
+**Local two-terminal demo:** terminal 1 runs `go run ./cmd/seller serve` (note the printed peer id and bootstrap multiaddr). Terminal 2 runs `mesh serve` (or `buyer start` — same flags) with `--bootstrap` set to that multiaddr and `--sellers-catalog` pointing at `examples/local-demo/sellers-catalog.json` after you replace `REPLACE_WITH_SELLER_PEER_ID` with the seller’s peer id.
 
 Run module CLIs:
 
 ```bash
-go run ./cmd/buyer start
+# Buyer: same wired HTTP + libp2p stack as `knowledgeMesh mesh serve` (see flags table above)
+go run ./cmd/buyer start --api-addr :8080
 go run ./cmd/seller start
-go run ./cmd/control start
 go run ./cmd/demo run
+```
+
+Run a **control plane** libp2p node (QUIC listener, `/knowledgemesh/control/1.0.0`; JSON `{"type":"ping"}` → `pong`):
+
+```bash
+go run ./cmd/control start
+go run ./cmd/control start --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
 ```
 
 Run a **seller libp2p inference node** (QUIC listener, sandbox + mock engine, inference protocol registered):
@@ -186,6 +219,7 @@ go test ./...
 - `internal/sandbox`: request-scoped execution runner with timeout + mock executor and redacted seller-safe view
 - `internal/api`: OpenAI- and Anthropic-compatible HTTP handlers; mock path (`serve`) or mesh path (`mesh serve`) with buyer register/login
 - `internal/mesh`: buyer runtime wiring matchmaking, seller catalog, and libp2p inference calls
+- `internal/control`: control-plane libp2p node; registers the control protocol handler (`control start`)
 - `internal/network`: libp2p native peer connections over QUIC, request/response stream helpers, protocol negotiation, static/local bootstrap helpers
 
 ## libp2p Protocols

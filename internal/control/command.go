@@ -1,17 +1,8 @@
 package control
 
-import (
-	"fmt"
+import "github.com/spf13/cobra"
 
-	"github.com/spf13/cobra"
-)
-
+// NewCommand is the control CLI root subcommand (currently `start`: libp2p + control protocol).
 func NewCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "start",
-		Short: "Start control module",
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("control module started")
-		},
-	}
+	return NewServeCommand()
 }
