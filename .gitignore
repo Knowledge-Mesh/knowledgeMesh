@@ -16,5 +16,16 @@ node_modules/
 dist/
 build/
 
+# Compiled binaries
+bin/
+
+# Go
+*.exe
+*.test
+
+# Environment
+.env
+.env.*
+
 # Logs
 *.log
