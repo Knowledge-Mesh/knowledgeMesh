@@ -3,53 +3,63 @@ package mesh
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/knowledgemeshgrid/knowledgemesh/internal/buyer"
-	"github.com/knowledgemeshgrid/knowledgemesh/internal/matchmaker"
+	"github.com/knowledgemeshgrid/knowledgemesh/internal/control"
 	"github.com/knowledgemeshgrid/knowledgemesh/internal/network"
 	"github.com/knowledgemeshgrid/knowledgemesh/pkg/types"
 	host "github.com/libp2p/go-libp2p/core/host"
 	peer "github.com/libp2p/go-libp2p/core/peer"
 )
 
-// Runtime wires buyer session, matchmaking, and libp2p inference calls.
+// Runtime wires buyer session, control-plane matchmaking, and libp2p inference calls.
 type Runtime struct {
 	Buyer   *buyer.Manager
-	Match   *matchmaker.Service
+	Control *control.Client
 	Host    host.Host
-	mu      sync.RWMutex
-	sellers []types.SellerNode
 }
 
 func NewRuntime(b *buyer.Manager, h host.Host) *Runtime {
 	return &Runtime{
 		Buyer: b,
-		Match: matchmaker.NewService(),
 		Host:  h,
 	}
 }
 
-func (r *Runtime) SetSellers(nodes []types.SellerNode) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.sellers = append([]types.SellerNode(nil), nodes...)
+// Register creates a buyer account on the control pane (no local-only registration).
+func (r *Runtime) Register(name, email, password string) (buyer.State, error) {
+	if r.Control == nil {
+		return buyer.State{}, errors.New("control pane not configured; use --control-url")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return buyer.State{}, errors.New("name is required")
+	}
+	id, err := r.Control.RegisterBuyer(name, email, password)
+	if err != nil {
+		return buyer.State{}, err
+	}
+	email = strings.TrimSpace(strings.ToLower(email))
+	return buyer.State{
+		BuyerID: id,
+		AuthRef: "control:" + email,
+	}, nil
 }
 
-func (r *Runtime) Sellers() []types.SellerNode {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return append([]types.SellerNode(nil), r.sellers...)
-}
-
-func (r *Runtime) Register(email, username, password string) (buyer.State, error) {
-	return r.Buyer.Register(email, username, password)
-}
-
+// Login authenticates against the control pane and establishes a local session (JWT is the session token).
 func (r *Runtime) Login(userOrEmail, password string) (buyer.State, error) {
-	return r.Buyer.Login(userOrEmail, password)
+	if r.Control == nil {
+		return buyer.State{}, errors.New("control pane not configured; use --control-url")
+	}
+	tok, buyerID, name, email, err := r.Control.LoginBuyer(userOrEmail, password)
+	if err != nil {
+		return buyer.State{}, err
+	}
+	return r.Buyer.EstablishControlSession(name, email, buyerID, tok)
 }
 
 func (r *Runtime) RunInference(ctx context.Context, sessionID string, req types.InferenceRequest) (types.InferenceResponse, error) {
@@ -82,14 +92,27 @@ func (r *Runtime) RunInference(ctx context.Context, sessionID string, req types.
 		req.RequestID = "req-" + sessionID + "-" + time.Now().Format("150405.000000000")
 	}
 
-	sel, err := r.Match.Match(req, r.Sellers())
+	if r.Control == nil {
+		return types.InferenceResponse{}, errors.New("control pane client is required for inference (matchmaking and billing)")
+	}
+
+	match, err := r.Control.PostInferenceMatch(sessionID, req)
 	if err != nil {
 		return types.InferenceResponse{}, err
 	}
+	req.RequestID = match.RequestID
+	req.BuyerPeerID = r.Host.ID().String()
 
-	pid, err := peer.Decode(sel.PeerID)
+	trackMeta := map[string]any{
+		"buyerP2pPeerId": r.Host.ID().String(),
+		"modelName":      req.ModelName,
+		"skill":          req.Skill.Name,
+	}
+	_ = r.Control.PostBuyerInferenceTracking(sessionID, req.RequestID, "started", trackMeta)
+
+	pid, err := peer.Decode(match.SellerPeerID)
 	if err != nil {
-		return types.InferenceResponse{}, err
+		return types.InferenceResponse{}, fmt.Errorf("seller peer id: %w", err)
 	}
 
 	body, err := json.Marshal(req)
@@ -99,20 +122,35 @@ func (r *Runtime) RunInference(ctx context.Context, sessionID string, req types.
 
 	respBytes, err := network.SendRequest(ctx, r.Host, pid, network.ProtocolInference, body)
 	if err != nil {
+		_ = r.Control.PostBuyerInferenceComplete(sessionID, req.RequestID, 0, false, map[string]any{"error": err.Error()})
 		return types.InferenceResponse{}, err
 	}
 
 	var resp types.InferenceResponse
 	if err := json.Unmarshal(respBytes, &resp); err != nil {
+		_ = r.Control.PostBuyerInferenceComplete(sessionID, req.RequestID, 0, false, map[string]any{"error": err.Error()})
 		return types.InferenceResponse{}, err
 	}
 
+	tok := int64(resp.TokenUsage.TotalTokens)
+	if resp.Success && tok <= 0 {
+		tok = int64(est)
+	}
+	_ = r.Control.PostBuyerInferenceTracking(sessionID, req.RequestID, "completed", map[string]any{
+		"success":     resp.Success,
+		"totalTokens": tok,
+		"sellerId":    match.SellerID,
+	})
+	_ = r.Control.PostBuyerInferenceComplete(sessionID, req.RequestID, tok, resp.Success, map[string]any{
+		"sellerPeerId": match.SellerPeerID,
+	})
+
 	if resp.Success {
-		tok := resp.TokenUsage.TotalTokens
-		if tok <= 0 {
-			tok = est
+		ptok := resp.TokenUsage.TotalTokens
+		if ptok <= 0 {
+			ptok = est
 		}
-		_, _ = r.Buyer.ConsumeUsage(sessionID, req.RequestID, req.Input, tok, sel.Price, now)
+		_, _ = r.Buyer.ConsumeUsage(sessionID, req.RequestID, req.Input, ptok, match.Price, now)
 	}
 	return resp, nil
 }

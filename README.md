@@ -1,242 +1,240 @@
 # knowledgeMesh
 
-knowledgeMesh is a minimal open-source scaffold for a modular marketplace-style mesh system in Go.
-It is structured so `buyer`, `seller`, and `control` can evolve independently while sharing protocol and config packages.
+knowledgeMesh is a minimal open-source scaffold for a modular marketplace-style mesh system in Go. The `buyer`, `seller`, and `control` binaries are separate; they share `pkg/` types and `internal/network` protocols.
+
+**Architecture and request flows** (components, PostgreSQL, matchmaking, billing, libp2p) are documented in [ARCHITECTURE.md](./ARCHITECTURE.md), including **Mermaid diagrams** (system context, runtime processes, code layers, billing flow — see *Visual architecture* at the top of that file).
 
 ## Tech
 
-- Go
+- Go **1.24+** (see `go.mod`)
 - Cobra CLI
 - libp2p (QUIC multiaddr)
-- `net/http` API
-- `encoding/json` message handling
+- `net/http` JSON APIs
+- PostgreSQL via the **control** HTTP API: buyer and seller accounts, seller models, billing (wallets, quotas, transaction ledger), and inference match metadata
 
-## Compile and run
-
-**Prerequisites:** [Go](https://go.dev/dl/) **1.24+** (see `go.mod`). No other build tools are required.
+## Compile and test
 
 From the repository root:
 
 ```bash
 cd knowledgeMesh   # or your clone path
 go build -o bin/ ./cmd/...
-```
-
-This writes one binary per `cmd/*` package into `bin/` (for example `bin/knowledgeMesh`, `bin/seller`, `bin/buyer`, `bin/control`, `bin/demo`). To verify the tree compiles and tests pass:
-
-```bash
 go build ./...
 go test ./...
 ```
 
-**Run without installing:** use `go run` with a package path (examples below use this). **Run after building:** invoke the binary and pass subcommands/flags the same way:
+That produces one binary per `cmd/*` package (for example `bin/knowledgeMesh`, `bin/buyer`, `bin/seller`, `bin/control`, `bin/demo`). On Windows, use `bin\knowledgeMesh.exe`, etc.
+
+Examples below use `go run ./cmd/...`; after building, run the same flags on `./bin/<name>`.
+
+## CLI reference
+
+Commands are provided by the **`knowledgeMesh`** umbrella binary (`serve`, `mesh serve`), plus dedicated **`buyer`**, **`seller`**, **`control`**, and **`demo`** binaries. Seller registration and the seller node use **`seller`** only (no duplicate under `knowledgeMesh`). The `knowledgeMesh serve` command is implemented in `internal/sandbox` (mock API path).
+
+| Binary | Command | Purpose |
+|--------|---------|---------|
+| `knowledgeMesh` | `serve` | Buyer HTTP API + libp2p host, **mock inference** only (`Mesh` nil). Flags: `--api-addr`, `--p2p-addr`. |
+| `knowledgeMesh` | `mesh serve` | Buyer mesh: control login, control matchmaking/billing, libp2p inference to matched seller. |
+| `buyer` | `register` | Register a buyer on the control pane (`--control-url`, `--name`, `--email`, `--password`). |
+| `buyer` | `start` | Same as `knowledgeMesh mesh serve` (buyer API + libp2p + control). |
+| `buyer` | `prompt` | Log in to control and send one `POST /v1/chat/completions` to a buyer API (`--api-url`, `--prompt`, …). |
+| `seller` | `register` | Register a seller on the control pane (`--control-url`, `--name`, `--email`, `--password`). |
+| `seller` | `serve` | QUIC listener + inference; requires `--control-url`, `--email`, `--password`; optional `--p2p-addr`. |
+| `control` | `api` | HTTP control pane + PostgreSQL (`DATABASE_URL`, `--http-addr`, `--jwt-secret`). |
+| `control` | `start` | libp2p control protocol node (`/knowledgemesh/control/1.0.0`), optional `--p2p-addr`. |
+| `demo` | `run` | Placeholder demo workflow. |
+
+## Control pane (HTTP API + PostgreSQL)
+
+The **control HTTP API** backs buyer and seller identity, seller models and duty, **billing**, and **inference match / tracking / settlement** (see [ARCHITECTURE.md](./ARCHITECTURE.md)).
+
+**Environment**
+
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL` | **Required** for `control api`. PostgreSQL connection string. |
+| `CONTROL_JWT_SECRET` | HMAC secret for JWTs (optional; default dev secret with a log warning). Use `--jwt-secret` to override. |
+
+**Run the API**
 
 ```bash
-./bin/knowledgeMesh serve
-./bin/knowledgeMesh mesh serve --demo --bootstrap '<multiaddr>' --sellers-catalog examples/local-demo/sellers-catalog.json
-./bin/buyer start --demo --bootstrap '<multiaddr>' --sellers-catalog examples/local-demo/sellers-catalog.json
-./bin/seller serve
-./bin/control start
+export DATABASE_URL='postgres://user:pass@localhost:5432/knowledgemesh?sslmode=disable'
+export CONTROL_JWT_SECRET='your-secret'   # recommended in production
+go run ./cmd/control api
+go run ./cmd/control api --http-addr :8090 --jwt-secret 'your-secret'
 ```
 
-On Windows, use `bin\knowledgeMesh.exe` etc.
+**HTTP routes (summary)**
 
-## Main Commands
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/healthz` | Liveness |
+| **Buyers** | | |
+| `POST` | `/v1/control/buyers/register` | JSON: `name`, `email`, `password` → `buyerId` |
+| `POST` | `/v1/control/buyers/login` | JSON: `email`, `password` → `accessToken`, `buyerId`, `name`, `email` |
+| `POST` | `/v1/control/buyers/me/inference/match` | Bearer buyer JWT; JSON [`InferenceRequest`](./pkg/types/core.go) meta → `sellerPeerId`, `sellerId`, `requestId`, … |
+| `POST` | `/v1/control/buyers/me/inference/tracking` | Bearer buyer JWT; `requestId`, `phase`, optional `meta` (audit) |
+| `POST` | `/v1/control/buyers/me/inference/complete` | Bearer buyer JWT; `requestId`, `totalTokens`, `success` → wallet settlement |
+| **Sellers** | | |
+| `POST` | `/v1/control/sellers/register` | JSON: `name`, `email`, `password` → `sellerId` |
+| `POST` | `/v1/control/sellers/login` | JSON: `email`, `password` → `accessToken` + profile |
+| `GET` | `/v1/control/sellers/me` | Bearer seller JWT → profile + models |
+| `PUT` | `/v1/control/sellers/me/duty` | JSON: `onDuty` |
+| `PUT` | `/v1/control/sellers/me/models` | JSON: `models` array (replaces models) |
+| `PATCH` | `/v1/control/sellers/me/models/{id}` | Toggle `active`, etc. |
+| `POST` | `/v1/control/sellers/me/presence` | JSON: `peerId` (libp2p host id string) |
+| `POST` | `/v1/control/sellers/me/inference/tracking` | Bearer seller JWT; execution audit for a `requestId` |
 
-The examples below use `go run ./cmd/...`; after [compiling](#compile-and-run), replace with `./bin/<name>` (for example `./bin/knowledgeMesh`).
-
-Run core node (API + p2p host, **mock inference** only—no matchmaking or seller calls):
-
-```bash
-go run ./cmd/knowledgeMesh serve
-go run ./cmd/knowledgeMesh serve --api-addr :8080 --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
-```
-
-Run the **wired buyer mesh** (HTTP API + libp2p QUIC + matchmaking + remote seller inference):
-
-```bash
-go run ./cmd/knowledgeMesh mesh serve
-go run ./cmd/knowledgeMesh mesh serve --api-addr :8080 --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
-```
-
-Flags for `mesh serve`:
-
-| Flag | Purpose |
-|------|---------|
-| `--api-addr` | HTTP listen address (default `:8080`) |
-| `--p2p-addr` | libp2p QUIC listen multiaddr |
-| `--bootstrap` | Repeatable: seller dial address, e.g. `/ip4/127.0.0.1/udp/4001/quic-v1/p2p/<PeerID>` |
-| `--sellers-catalog` | JSON file: array of `SellerNode` for the matchmaker (peer id must match the seller) |
-| `--demo` | Register/login a demo buyer (`demo@local` / `demo` / `demo`) and log a `X-Session-ID` to stdout |
-
-**Local two-terminal demo:** terminal 1 runs `go run ./cmd/seller serve` (note the printed peer id and bootstrap multiaddr). Terminal 2 runs `mesh serve` (or `buyer start` — same flags) with `--bootstrap` set to that multiaddr and `--sellers-catalog` pointing at `examples/local-demo/sellers-catalog.json` after you replace `REPLACE_WITH_SELLER_PEER_ID` with the seller’s peer id.
-
-Run module CLIs:
-
-```bash
-# Buyer: same wired HTTP + libp2p stack as `knowledgeMesh mesh serve` (see flags table above)
-go run ./cmd/buyer start --api-addr :8080
-go run ./cmd/seller start
-go run ./cmd/demo run
-```
-
-Run a **control plane** libp2p node (QUIC listener, `/knowledgemesh/control/1.0.0`; JSON `{"type":"ping"}` → `pong`):
+**Libp2p control node** (separate from the HTTP API): ping/pong JSON over `/knowledgemesh/control/1.0.0`:
 
 ```bash
 go run ./cmd/control start
 go run ./cmd/control start --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
 ```
 
-Run a **seller libp2p inference node** (QUIC listener, sandbox + mock engine, inference protocol registered):
+## Buyer workflow
+
+1. Start PostgreSQL and run **`control api`** with `DATABASE_URL` set.
+2. **Register** a buyer (CLI or HTTP):
+   ```bash
+   go run ./cmd/buyer register \
+     --control-url http://127.0.0.1:8090 \
+     --name "My Name" \
+     --email you@example.com \
+     --password 'secure-password'
+   ```
+3. **Start the buyer mesh** (HTTP API + libp2p). You must pass credentials so the process can log in to the control pane. **Matchmaking and billing** run on the control API (PostgreSQL); ensure at least one seller is registered, on duty, has models, and has posted **presence** (`peerId`) so the control pane can return a `sellerPeerId` on match.
+   ```bash
+   go run ./cmd/knowledgeMesh mesh serve \
+     --control-url http://127.0.0.1:8090 \
+     --email you@example.com \
+     --password 'secure-password' \
+     --bootstrap '/ip4/127.0.0.1/udp/4001/quic-v1/p2p/<SELLER_PEER_ID>'
+   ```
+   The process logs a **session token**; use it as `Authorization: Bearer <token>` or `X-Session-ID: <token>` on the buyer HTTP API below.
+
+   The same flags work for **`go run ./cmd/buyer start`** (equivalent to `knowledgeMesh mesh serve`).
+
+4. Optional: **one-shot prompt** via CLI (logs in to control, then calls the buyer mesh chat API):
+   ```bash
+   go run ./cmd/buyer prompt \
+     --control-url http://127.0.0.1:8090 \
+     --email you@example.com \
+     --password 'secure-password' \
+     --api-url http://127.0.0.1:8080 \
+     --prompt 'Hello'
+   ```
+
+### Flags: `mesh serve` / `buyer start`
+
+| Flag | Purpose |
+|------|---------|
+| `--control-url` | **Required.** Control pane base URL, e.g. `http://127.0.0.1:8090` |
+| `--email` | **Required.** Buyer email (registered on the control pane) |
+| `--password` | **Required.** Buyer password |
+| `--api-addr` | Buyer HTTP API listen address (default `:8080`) |
+| `--p2p-addr` | libp2p QUIC listen multiaddr |
+| `--bootstrap` | Repeatable seller dial multiaddr (needed to reach the matched seller over the network) |
+
+**Local two-terminal sketch:** (1) Run `control api` with PostgreSQL. (2) Register buyer and seller on the control API; configure seller models, set on duty, run `seller serve` with control login and note the printed bootstrap line. (3) Run `mesh serve` with the same control URL and buyer credentials, and pass `--bootstrap` from the seller. Inference calls the control pane for **match → tracking → complete** before and after libp2p QUIC inference.
+
+## Examples and quick binary check
+
+Mock-only buyer API (no control pane):
 
 ```bash
-go run ./cmd/seller serve
-go run ./cmd/seller serve --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1 --skills chat --model-name kmg-mock-1 --price 0
+go run ./cmd/knowledgeMesh serve
+go run ./cmd/knowledgeMesh serve --api-addr :8080 --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
 ```
 
-Use the logged **dial this bootstrap** line as `mesh serve --bootstrap`, and align `peerId` in the sellers catalog with the printed **seller peer id**.
-
-Seller registration and login (local JSON registry):
+After `go build -o bin/ ./cmd/...`, smoke-test the main binaries (see [CLI reference](#cli-reference)):
 
 ```bash
-# Register seller account + metadata
-go run ./cmd/seller start register \
-  --username alice \
-  --email alice@example.com \
-  --password secret123 \
-  --peer-id 12D3KooWSeller \
-  --skills summarize,qa \
-  --model-name gpt-mini \
-  --model-type llm \
-  --tuning-tier base \
-  --price 0.02 \
-  --cpu-cores 4 \
-  --memory-mb 8192 \
-  --gpus 1
-
-# Login seller and print metadata
-go run ./cmd/seller start login \
-  --user alice@example.com \
-  --password secret123
+./bin/knowledgeMesh serve
+./bin/knowledgeMesh mesh serve --control-url http://127.0.0.1:8090 --email you@example.com --password '...' --bootstrap '<multiaddr>'
+./bin/buyer register --control-url http://127.0.0.1:8090 --name 'Me' --email you@example.com --password '...'
+./bin/buyer start --control-url http://127.0.0.1:8090 --email you@example.com --password '...' --bootstrap '<multiaddr>'
+./bin/seller register --control-url http://127.0.0.1:8090 --name 'Seller' --email seller@example.com --password '...'
+./bin/seller serve --control-url http://127.0.0.1:8090 --email seller@example.com --password '...'
+./bin/control api
+./bin/control start
+./bin/demo run
 ```
 
-Seller on-duty (use **at most one** of `--anthropic-config`, `--openai-config`, `--ollama-config`):
+## Seller
+
+### Control pane (recommended for mesh integration)
+
+Register and declare models via the control API (or `seller register`), then run the inference node with control login so PostgreSQL drives duty, models, and presence:
 
 ```bash
-# On-duty only (mock model engine unless a provider config is set below)
-go run ./cmd/seller start on-duty --peer-id 12D3KooWSeller
+go run ./cmd/seller register \
+  --control-url http://127.0.0.1:8090 \
+  --name "Seller Name" \
+  --email seller@example.com \
+  --password 'secure-password'
 
-# Anthropic — API key must live in the env named by `apiKeyEnv` (not in the JSON file)
-go run ./cmd/seller start on-duty --peer-id 12D3KooWSeller --anthropic-config anthropic.json
-
-# OpenAI — e.g. `OPENAI_API_KEY` via `apiKeyEnv`
-go run ./cmd/seller start on-duty --peer-id 12D3KooWSeller --openai-config openai.json
-
-# Ollama — mock backend for now; `baseURL` is for a future real HTTP client
-go run ./cmd/seller start on-duty --peer-id 12D3KooWSeller --ollama-config ollama.json
+go run ./cmd/seller serve \
+  --control-url http://127.0.0.1:8090 \
+  --email seller@example.com \
+  --password 'secure-password' \
+  --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
 ```
 
-Example `anthropic.json`:
+Use the printed **dial this bootstrap** line for the buyer mesh’s `--bootstrap`. Models, token limits, and rates are managed through the control API (`PUT /v1/control/sellers/me/models`, etc.) after login.
 
-```json
-{
-  "apiKeyEnv": "ANTHROPIC_API_KEY",
-  "models": [
-    {
-      "id": "claude-haiku",
-      "name": "claude-3-5-haiku-20241022",
-      "hourlyTokens": 100000,
-      "dailyTokens": 1000000,
-      "totalTokens": 0
-    }
-  ]
-}
-```
+Optional Anthropic / OpenAI / Ollama integration is implemented under `internal/seller/anthropic`, `internal/seller/openai`, and `internal/seller/ollama` for custom wiring; the default `seller serve` path uses the sandbox and engine selection from seller node metadata.
 
-Example `openai.json`:
+## Buyer HTTP API (OpenAI / Anthropic style)
 
-```json
-{
-  "apiKeyEnv": "OPENAI_API_KEY",
-  "baseURL": "https://api.openai.com/v1",
-  "models": [
-    {
-      "id": "my-gpt",
-      "name": "gpt-4o-mini",
-      "hourlyTokens": 100000,
-      "dailyTokens": 1000000,
-      "totalTokens": 0
-    }
-  ]
-}
-```
+With **`knowledgeMesh serve`** (mock path, no control pane):
 
-Example `ollama.json`:
-
-```json
-{
-  "baseURL": "http://127.0.0.1:11434",
-  "models": [
-    {
-      "id": "local",
-      "name": "llama3:latest",
-      "hourlyTokens": 0,
-      "dailyTokens": 0,
-      "totalTokens": 0
-    }
-  ]
-}
-```
-
-Seller registry path: OS user config directory, e.g. `~/.config/knowledgemesh/seller_registry.json` on Linux (see `DefaultRegistryPath()` in `internal/seller`).
-
-### Buyer HTTP API (basic compatibility)
-
-With `go run ./cmd/knowledgeMesh serve` (mock inference, optional session not required for chat):
-
-- OpenAI-style: `GET /v1/models`, `POST /v1/chat/completions`
-- Anthropic-style: `POST /v1/messages`
+- `GET /v1/models`, `POST /v1/chat/completions` (OpenAI-style)
+- `POST /v1/messages` (Anthropic-style)
 - `GET /healthz`
 
-With `go run ./cmd/knowledgeMesh mesh serve` (real inference via matchmaker + libp2p):
+With **`knowledgeMesh mesh serve`** (control pane + real inference):
 
-- `POST /api/v1/buyer/register` — JSON: `email`, `username`, `password`; returns `buyerId`
-- `POST /api/v1/buyer/login` — JSON: `user`, `password`; returns `sessionId`, `buyerId`
-- `POST /v1/chat/completions` and `POST /v1/messages` require authentication: header `X-Session-ID: <sessionId>` or `Authorization: Bearer <sessionId>`
-- Same OpenAI/Anthropic response shapes as above; errors follow each vendor’s JSON error style where applicable
+- `POST /api/v1/buyer/register` — JSON: `name` or `username`, `email`, `password` → `buyerId` (via control pane)
+- `POST /api/v1/buyer/login` — JSON: `user`, `password` → `sessionId`, `buyerId`
+- `POST /v1/chat/completions`, `POST /v1/messages` — require `X-Session-ID` or `Authorization: Bearer` (use the token printed after mesh startup, or from login). Each completion triggers control **match**, libp2p **inference**, then control **tracking** and **complete** (billing) as described in [ARCHITECTURE.md](./ARCHITECTURE.md).
+
+## libp2p protocols
+
+| Protocol ID | Use |
+|-------------|-----|
+| `/knowledgemesh/control/1.0.0` | Control streams (`control start`) |
+| `/knowledgemesh/inference/1.0.0` | Inference request/response |
+
+Helpers in `internal/network`: `RegisterRequestHandler`, `SendRequest`, `ConnectBootstrapPeers`, `NewLocalRegistry().BootstrapList()`.
+
+## Current modules
+
+- `internal/seller` — Anthropic / OpenAI / Ollama facades; `serve` uses control for profile and tracking
+- `internal/buyer` — session state after control login; CLI commands for `buyer` (`register`, `prompt` in `commands.go`)
+- `internal/matchmaker` — seller selection by skill, duty, price cap, then price/reputation (used **inside** the control pane for `/buyers/me/inference/match`)
+- `internal/sandbox` — request-scoped runner + mock executor
+- `internal/api` — OpenAI/Anthropic HTTP handlers
+- `internal/mesh` — control client for match/tracking/complete, libp2p inference to matched seller
+- `internal/control` — PostgreSQL (buyers, sellers, models, billing, inference matches), HTTP API (`control api`), JWT, outbound client, libp2p handler (`control start`)
+- `internal/network` — QUIC host, stream helpers, bootstrap
+
+## Layout
+
+- `cmd/` — thin `main` packages only (`knowledgeMesh`, `buyer`, `seller`, `control`, `demo`)
+- `internal/` — private logic (`buyer`, `seller`, `control`, `mesh`, `matchmaker`, `network`, `api`, `sandbox`, `policy`, `state`)
+- `pkg/` — shared libraries (`types`, `protocol`, `config`)
+- `ARCHITECTURE.md` — system architecture and inference/billing flow
+- `configs/`, `examples/`, `tests/` — configs, demos, tests
+
+## Other CLIs
+
+```bash
+go run ./cmd/demo run
+```
 
 Run tests:
 
 ```bash
 go test ./...
 ```
-
-## Current MVP Modules
-
-- `internal/seller`: local seller registry, login, on-duty with **Anthropic / OpenAI / Ollama** configs (mutually exclusive), token limits, usage; model engines (`internal/seller/anthropic`, `openai`, `ollama`)
-- `internal/buyer`: in-memory buyer account/session state, limits, usage accounting, preference updates, prompt submission path
-- `internal/matchmaker`: simple seller selection by skill match, availability, price (ascending), and reputation tie-break (descending)
-- `internal/sandbox`: request-scoped execution runner with timeout + mock executor and redacted seller-safe view
-- `internal/api`: OpenAI- and Anthropic-compatible HTTP handlers; mock path (`serve`) or mesh path (`mesh serve`) with buyer register/login
-- `internal/mesh`: buyer runtime wiring matchmaking, seller catalog, and libp2p inference calls
-- `internal/control`: control-plane libp2p node; registers the control protocol handler (`control start`)
-- `internal/network`: libp2p native peer connections over QUIC, request/response stream helpers, protocol negotiation, static/local bootstrap helpers
-
-## libp2p Protocols
-
-- Control protocol: `/knowledgemesh/control/1.0.0`
-- Inference protocol: `/knowledgemesh/inference/1.0.0`
-
-These are used by `internal/network` stream handlers and request senders:
-
-- `RegisterRequestHandler(...)`
-- `SendRequest(...)`
-- `ConnectBootstrapPeers(...)`
-- `NewLocalRegistry().BootstrapList()`
-
-## Layout
-
-- `cmd/`: runnable binaries only
-- `internal/`: private module logic (`buyer`, `seller`, `control`, `matchmaker`, `network`, `api`, `sandbox`, `policy`, `state`)
-- `pkg/`: shared public code (`types`, `protocol`, `config`)
-- `configs/`, `docs/`, `examples/`, `tests/`: project assets and growth areas

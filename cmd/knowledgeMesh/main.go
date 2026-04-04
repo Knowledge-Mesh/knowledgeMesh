@@ -11,7 +11,7 @@ import (
 func main() {
 	root := &cobra.Command{
 		Use:   "knowledgeMesh",
-		Short: "KnowledgeMesh node CLI",
+		Short: "KnowledgeMesh node CLI (buyer mesh + mock serve)",
 	}
 
 	meshCmd := &cobra.Command{

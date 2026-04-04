@@ -56,6 +56,7 @@ type buyerAccount struct {
 
 type stateStore interface {
 	Create(account buyerAccount) error
+	PutControlAccount(account buyerAccount) error
 	GetByUserOrEmail(user string) (buyerAccount, bool)
 	GetBySession(sessionID string) (buyerAccount, bool)
 	Update(account buyerAccount) error
@@ -87,6 +88,23 @@ func (s *inMemoryStore) Create(account buyerAccount) error {
 	}
 	if _, ok := s.byEmail[emailKey]; ok {
 		return ErrBuyerExists
+	}
+	s.byUsername[userKey] = account
+	s.byEmail[emailKey] = userKey
+	if account.State.SessionID != "" {
+		s.bySession[account.State.SessionID] = userKey
+	}
+	return nil
+}
+
+func (s *inMemoryStore) PutControlAccount(account buyerAccount) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	userKey := strings.ToLower(account.Username)
+	emailKey := strings.ToLower(account.Email)
+	if old, ok := s.byUsername[userKey]; ok && old.State.SessionID != "" {
+		delete(s.bySession, old.State.SessionID)
 	}
 	s.byUsername[userKey] = account
 	s.byEmail[emailKey] = userKey
@@ -182,6 +200,32 @@ func (m *Manager) Login(userOrEmail, password string) (State, error) {
 
 	account.State.SessionID = fmt.Sprintf("sess-%d", time.Now().UTC().UnixNano())
 	if err := m.store.Update(account); err != nil {
+		return State{}, err
+	}
+	return account.State, nil
+}
+
+// EstablishControlSession records a session for a buyer authenticated via the control pane (JWT used as session token).
+func (m *Manager) EstablishControlSession(displayName, email, buyerID, accessToken string) (State, error) {
+	email = strings.TrimSpace(strings.ToLower(email))
+	if email == "" || buyerID == "" || accessToken == "" {
+		return State{}, ErrInvalidCredentials
+	}
+	key := "control:" + email
+	account := buyerAccount{
+		Username:     key,
+		Email:        email,
+		PasswordHash: "",
+		State: State{
+			BuyerID:     buyerID,
+			SessionID:   accessToken,
+			AuthRef:     "control:" + email,
+			TokenLimits: types.RateLimits{},
+			Usage:       types.UsageCounters{},
+		},
+	}
+	_ = displayName
+	if err := m.store.PutControlAccount(account); err != nil {
 		return State{}, err
 	}
 	return account.State, nil

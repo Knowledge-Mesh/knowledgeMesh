@@ -16,7 +16,7 @@ import (
 // MeshRuntime is implemented by mesh.Runtime: buyer auth + remote inference.
 type MeshRuntime interface {
 	RunInference(ctx context.Context, sessionID string, req types.InferenceRequest) (types.InferenceResponse, error)
-	Register(email, username, password string) (buyer.State, error)
+	Register(name, email, password string) (buyer.State, error)
 	Login(userOrEmail, password string) (buyer.State, error)
 }
 
@@ -64,6 +64,7 @@ func (s *Server) parseSession(r *http.Request) (string, error) {
 }
 
 type buyerRegisterBody struct {
+	Name     string `json:"name"`
 	Email    string `json:"email"`
 	Username string `json:"username"`
 	Password string `json:"password"`
@@ -88,7 +89,15 @@ func (s *Server) handleBuyerRegister(w http.ResponseWriter, r *http.Request) {
 		writeOpenAIError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	st, err := s.Mesh.Register(body.Email, body.Username, body.Password)
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		name = strings.TrimSpace(body.Username)
+	}
+	if name == "" {
+		writeOpenAIError(w, http.StatusBadRequest, "name or username is required")
+		return
+	}
+	st, err := s.Mesh.Register(name, body.Email, body.Password)
 	if err != nil {
 		writeOpenAIError(w, http.StatusBadRequest, err.Error())
 		return
