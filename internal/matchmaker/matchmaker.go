@@ -17,9 +17,15 @@ func NewService() *Service {
 }
 
 func (s *Service) Match(req types.InferenceRequest, sellers []types.SellerNode) (types.SellerNode, error) {
+	pinned := strings.TrimSpace(req.PreferredNode)
+
 	candidates := make([]types.SellerNode, 0, len(sellers))
 	for _, seller := range sellers {
 		if !seller.OnDuty {
+			continue
+		}
+		// Node pinning: if buyer requested a specific seller, skip all others
+		if pinned != "" && !strings.EqualFold(strings.TrimSpace(seller.Name), pinned) {
 			continue
 		}
 		if req.MaxPrice > 0 && seller.Price > req.MaxPrice {

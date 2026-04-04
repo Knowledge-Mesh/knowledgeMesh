@@ -49,6 +49,7 @@ type NodeMetadata struct {
 
 type SellerNode struct {
 	PeerID        string                 `json:"peerId"`
+	Name          string                 `json:"name,omitempty"`
 	Skills        []Skill                `json:"skills"`
 	ModelName     string                 `json:"modelName"`
 	ModelType     string                 `json:"modelType"`
@@ -80,15 +81,16 @@ type BuyerNode struct {
 }
 
 type InferenceRequest struct {
-	RequestID   string     `json:"requestId"`
-	BuyerPeerID string     `json:"buyerPeerId"`
-	ModelName   string     `json:"modelName"`
-	ModelType   string     `json:"modelType"`
-	TuningTier  string     `json:"tuningTier"`
-	Skill       Skill      `json:"skill"`
-	Input       string     `json:"input"`
-	MaxPrice    float64    `json:"maxPrice"`
-	TokenLimits RateLimits `json:"tokenLimits"`
+	RequestID     string     `json:"requestId"`
+	BuyerPeerID   string     `json:"buyerPeerId"`
+	ModelName     string     `json:"modelName"`
+	ModelType     string     `json:"modelType"`
+	TuningTier    string     `json:"tuningTier"`
+	Skill         Skill      `json:"skill"`
+	Input         string     `json:"input"`
+	MaxPrice      float64    `json:"maxPrice"`
+	PreferredNode string     `json:"preferredNode,omitempty"`
+	TokenLimits   RateLimits `json:"tokenLimits"`
 }
 
 type InferenceResponse struct {
