@@ -200,7 +200,7 @@ Registration and login for buyers and sellers in production flows go through **`
 
 ## Data stores (PostgreSQL)
 
-Rough responsibility split:
+Schema changes are **versioned migrations** (`internal/control/migrations/*.sql`, [golang-migrate](https://github.com/golang-migrate/migrate)), applied on `control api` startup. Migration history is stored in **`schema_migrations`** (managed by the tool).
 
 | Data | Tables (conceptual) |
 |------|---------------------|

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 
 	libp2p "github.com/libp2p/go-libp2p"
@@ -96,6 +97,27 @@ func ConnectBootstrapPeers(ctx context.Context, h host.Host, peers []string) err
 		}
 	}
 	return nil
+}
+
+// ConnectToPeer adds transport addresses for id to the peerstore and dials. Addr strings must be
+// libp2p multiaddrs without the trailing /p2p/<peerID> (same as host.Addrs()).
+func ConnectToPeer(ctx context.Context, h host.Host, id peer.ID, transportAddrs []string) error {
+	var addrs []ma.Multiaddr
+	for _, s := range transportAddrs {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		m, err := ma.NewMultiaddr(s)
+		if err != nil {
+			return fmt.Errorf("invalid multiaddr %q: %w", s, err)
+		}
+		addrs = append(addrs, m)
+	}
+	if len(addrs) == 0 {
+		return nil
+	}
+	return h.Connect(ctx, peer.AddrInfo{ID: id, Addrs: addrs})
 }
 
 type LocalRegistry struct {

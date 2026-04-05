@@ -42,21 +42,6 @@ func NewPostgresStore(ctx context.Context, dsn string) (*PostgresStore, error) {
 // Pool returns the underlying pool (for graceful shutdown in tests).
 func (s *PostgresStore) Pool() *pgxpool.Pool { return s.pool }
 
-// Migrate applies buyer and seller schemas.
-func (s *PostgresStore) Migrate(ctx context.Context) error {
-	if _, err := s.pool.Exec(ctx, BuyerUsersSQL); err != nil {
-		return err
-	}
-	if _, err := s.pool.Exec(ctx, SellerSchemaSQL); err != nil {
-		return err
-	}
-	if _, err := s.pool.Exec(ctx, BillingSchemaSQL); err != nil {
-		return err
-	}
-	_, err := s.pool.Exec(ctx, BillingBackfillSQL)
-	return err
-}
-
 // RegisterBuyer inserts a new buyer row (email must be unique, case-insensitive).
 func (s *PostgresStore) RegisterBuyer(displayName, email, password string) (string, error) {
 	displayName = strings.TrimSpace(displayName)

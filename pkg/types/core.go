@@ -49,6 +49,7 @@ type NodeMetadata struct {
 
 type SellerNode struct {
 	PeerID        string                 `json:"peerId"`
+	ListenAddrs   []string               `json:"listenAddrs,omitempty"`
 	Skills        []Skill                `json:"skills"`
 	ModelName     string                 `json:"modelName"`
 	ModelType     string                 `json:"modelType"`

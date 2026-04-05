@@ -55,7 +55,11 @@ func NewServeCommand() *cobra.Command {
 			}
 
 			pid := h.ID().String()
-			if _, err := cc.PostSellerPresence(tok, pid); err != nil {
+			listenAddrs := make([]string, 0, len(h.Addrs()))
+			for _, a := range h.Addrs() {
+				listenAddrs = append(listenAddrs, a.String())
+			}
+			if _, err := cc.PostSellerPresence(tok, pid, listenAddrs); err != nil {
 				log.Printf("warning: post presence to control: %v", err)
 			}
 

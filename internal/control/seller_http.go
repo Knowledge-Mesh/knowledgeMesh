@@ -22,7 +22,20 @@ type sellerModelsPutReq struct {
 }
 
 type sellerPresenceReq struct {
-	PeerID string `json:"peerId"`
+	PeerID      string   `json:"peerId"`
+	ListenAddrs []string `json:"listenAddrs"`
+}
+
+func sellerProfileJSON(prof SellerProfile) map[string]any {
+	return map[string]any{
+		"sellerId":    prof.SellerID,
+		"name":        prof.Name,
+		"email":       prof.Email,
+		"onDuty":      prof.OnDuty,
+		"peerId":      prof.PeerID,
+		"listenAddrs": prof.ListenAddrs,
+		"models":      prof.Models,
+	}
 }
 
 func (s *HTTPServer) handleSellerRegister(w http.ResponseWriter, r *http.Request) {
@@ -82,15 +95,12 @@ func (s *HTTPServer) handleSellerLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"accessToken": token,
-		"sellerId":    sellerID,
-		"name":        name,
-		"email":       email,
-		"onDuty":      prof.OnDuty,
-		"peerId":      prof.PeerID,
-		"models":      prof.Models,
-	})
+	m := sellerProfileJSON(prof)
+	m["accessToken"] = token
+	m["sellerId"] = sellerID
+	m["name"] = name
+	m["email"] = email
+	_ = json.NewEncoder(w).Encode(m)
 }
 
 func (s *HTTPServer) sellerIDFromRequest(r *http.Request) (string, error) {
@@ -118,14 +128,7 @@ func (s *HTTPServer) handleSellerMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"sellerId": prof.SellerID,
-		"name":     prof.Name,
-		"email":    prof.Email,
-		"onDuty":   prof.OnDuty,
-		"peerId":   prof.PeerID,
-		"models":   prof.Models,
-	})
+	_ = json.NewEncoder(w).Encode(sellerProfileJSON(prof))
 }
 
 func (s *HTTPServer) handleSellerDuty(w http.ResponseWriter, r *http.Request) {
@@ -153,14 +156,7 @@ func (s *HTTPServer) handleSellerDuty(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"sellerId": prof.SellerID,
-		"name":     prof.Name,
-		"email":    prof.Email,
-		"onDuty":   prof.OnDuty,
-		"peerId":   prof.PeerID,
-		"models":   prof.Models,
-	})
+	_ = json.NewEncoder(w).Encode(sellerProfileJSON(prof))
 }
 
 func (s *HTTPServer) handleSellerModelsPut(w http.ResponseWriter, r *http.Request) {
@@ -188,14 +184,7 @@ func (s *HTTPServer) handleSellerModelsPut(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"sellerId": prof.SellerID,
-		"name":     prof.Name,
-		"email":    prof.Email,
-		"onDuty":   prof.OnDuty,
-		"peerId":   prof.PeerID,
-		"models":   prof.Models,
-	})
+	_ = json.NewEncoder(w).Encode(sellerProfileJSON(prof))
 }
 
 func (s *HTTPServer) handleSellerModelPatch(w http.ResponseWriter, r *http.Request) {
@@ -278,14 +267,7 @@ func (s *HTTPServer) handleSellerModelPatch(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"sellerId": prof2.SellerID,
-		"name":     prof2.Name,
-		"email":    prof2.Email,
-		"onDuty":   prof2.OnDuty,
-		"peerId":   prof2.PeerID,
-		"models":   prof2.Models,
-	})
+	_ = json.NewEncoder(w).Encode(sellerProfileJSON(prof2))
 }
 
 func (s *HTTPServer) handleSellerPresence(w http.ResponseWriter, r *http.Request) {
@@ -303,7 +285,7 @@ func (s *HTTPServer) handleSellerPresence(w http.ResponseWriter, r *http.Request
 		writeJSONErr(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	if err := s.Store.SetSellerPeer(sellerID, body.PeerID); err != nil {
+	if err := s.Store.SetSellerPresence(sellerID, body.PeerID, body.ListenAddrs); err != nil {
 		writeJSONErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -313,12 +295,5 @@ func (s *HTTPServer) handleSellerPresence(w http.ResponseWriter, r *http.Request
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"sellerId": prof.SellerID,
-		"name":     prof.Name,
-		"email":    prof.Email,
-		"onDuty":   prof.OnDuty,
-		"peerId":   prof.PeerID,
-		"models":   prof.Models,
-	})
+	_ = json.NewEncoder(w).Encode(sellerProfileJSON(prof))
 }

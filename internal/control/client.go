@@ -133,6 +133,7 @@ func (c *Client) LoginSeller(email, password string) (accessToken string, prof S
 		Email       string                `json:"email"`
 		OnDuty      bool                  `json:"onDuty"`
 		PeerID      string                `json:"peerId"`
+		ListenAddrs []string              `json:"listenAddrs"`
 		Models      []SellerModelRecord   `json:"models"`
 	}
 	err = c.doJSON(http.MethodPost, "/v1/control/sellers/login", map[string]string{
@@ -143,36 +144,39 @@ func (c *Client) LoginSeller(email, password string) (accessToken string, prof S
 		return "", SellerProfile{}, err
 	}
 	return out.AccessToken, SellerProfile{
-		SellerID: out.SellerID,
-		Name:     out.Name,
-		Email:    out.Email,
-		OnDuty:   out.OnDuty,
-		PeerID:   out.PeerID,
-		Models:   out.Models,
+		SellerID:    out.SellerID,
+		Name:        out.Name,
+		Email:       out.Email,
+		OnDuty:      out.OnDuty,
+		PeerID:      out.PeerID,
+		ListenAddrs: out.ListenAddrs,
+		Models:      out.Models,
 	}, nil
 }
 
 // GetSellerMe fetches the current seller (Bearer token).
 func (c *Client) GetSellerMe(token string) (SellerProfile, error) {
 	var out struct {
-		SellerID string              `json:"sellerId"`
-		Name     string              `json:"name"`
-		Email    string              `json:"email"`
-		OnDuty   bool                `json:"onDuty"`
-		PeerID   string              `json:"peerId"`
-		Models   []SellerModelRecord `json:"models"`
+		SellerID    string              `json:"sellerId"`
+		Name        string              `json:"name"`
+		Email       string              `json:"email"`
+		OnDuty      bool                `json:"onDuty"`
+		PeerID      string              `json:"peerId"`
+		ListenAddrs []string            `json:"listenAddrs"`
+		Models      []SellerModelRecord `json:"models"`
 	}
 	err := c.doJSON(http.MethodGet, "/v1/control/sellers/me", nil, &out, token)
 	if err != nil {
 		return SellerProfile{}, err
 	}
 	return SellerProfile{
-		SellerID: out.SellerID,
-		Name:     out.Name,
-		Email:    out.Email,
-		OnDuty:   out.OnDuty,
-		PeerID:   out.PeerID,
-		Models:   out.Models,
+		SellerID:    out.SellerID,
+		Name:        out.Name,
+		Email:       out.Email,
+		OnDuty:      out.OnDuty,
+		PeerID:      out.PeerID,
+		ListenAddrs: out.ListenAddrs,
+		Models:      out.Models,
 	}, nil
 }
 
@@ -196,10 +200,13 @@ func (c *Client) PutSellerModels(token string, models []SellerModelRecord) (Sell
 	return decodeSellerProfileMap(out)
 }
 
-// PostSellerPresence reports libp2p peer id to the control pane.
-func (c *Client) PostSellerPresence(token, peerID string) (SellerProfile, error) {
+// PostSellerPresence reports libp2p peer id and QUIC transport listen multiaddrs to the control pane.
+func (c *Client) PostSellerPresence(token, peerID string, listenAddrs []string) (SellerProfile, error) {
 	var out map[string]any
-	err := c.doJSON(http.MethodPost, "/v1/control/sellers/me/presence", map[string]string{"peerId": peerID}, &out, token)
+	err := c.doJSON(http.MethodPost, "/v1/control/sellers/me/presence", map[string]any{
+		"peerId":      peerID,
+		"listenAddrs": listenAddrs,
+	}, &out, token)
 	if err != nil {
 		return SellerProfile{}, err
 	}
@@ -220,11 +227,12 @@ func decodeSellerProfileMap(m map[string]any) (SellerProfile, error) {
 
 // InferenceMatchResponse is returned by the control pane after matchmaking.
 type InferenceMatchResponse struct {
-	RequestID    string  `json:"requestId"`
-	SellerID     string  `json:"sellerId"`
-	SellerPeerID string  `json:"sellerPeerId"`
-	Price        float64 `json:"price"`
-	Reputation   float64 `json:"reputation"`
+	RequestID         string   `json:"requestId"`
+	SellerID          string   `json:"sellerId"`
+	SellerPeerID      string   `json:"sellerPeerId"`
+	SellerListenAddrs []string `json:"sellerListenAddrs"`
+	Price             float64  `json:"price"`
+	Reputation        float64  `json:"reputation"`
 }
 
 // PostInferenceMatch authenticates the buyer and returns the selected seller connection metadata.

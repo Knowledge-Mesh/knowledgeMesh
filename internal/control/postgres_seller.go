@@ -14,13 +14,14 @@ import (
 
 // SellerProfile is a seller row plus models (for API / DB round-trip).
 type SellerProfile struct {
-	SellerID  string              `json:"sellerId"`
-	Name      string              `json:"name"`
-	Email     string              `json:"email"`
-	OnDuty    bool                `json:"onDuty"`
-	PeerID    string              `json:"peerId,omitempty"`
-	Models    []SellerModelRecord `json:"models"`
-	CreatedAt time.Time           `json:"createdAt,omitempty"`
+	SellerID    string              `json:"sellerId"`
+	Name        string              `json:"name"`
+	Email       string              `json:"email"`
+	OnDuty      bool                `json:"onDuty"`
+	PeerID      string              `json:"peerId,omitempty"`
+	ListenAddrs []string            `json:"listenAddrs,omitempty"`
+	Models      []SellerModelRecord `json:"models"`
+	CreatedAt   time.Time           `json:"createdAt,omitempty"`
 }
 
 // RegisterSeller inserts seller_users only (models added via ReplaceSellerModels).
@@ -91,10 +92,11 @@ func (s *PostgresStore) GetSellerProfile(sellerID string) (SellerProfile, error)
 	var name, em string
 	var onDuty bool
 	var peerID *string
+	var listenJSON []byte
 	var createdAt time.Time
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, display_name, email, on_duty, peer_id, created_at FROM seller_users WHERE id = $1::uuid`, sellerID).
-		Scan(&id, &name, &em, &onDuty, &peerID, &createdAt)
+		SELECT id, display_name, email, on_duty, peer_id, COALESCE(listen_addrs, '[]'::jsonb), created_at FROM seller_users WHERE id = $1::uuid`, sellerID).
+		Scan(&id, &name, &em, &onDuty, &peerID, &listenJSON, &createdAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return SellerProfile{}, ErrSellerNotFound
@@ -109,14 +111,19 @@ func (s *PostgresStore) GetSellerProfile(sellerID string) (SellerProfile, error)
 	if peerID != nil {
 		p = *peerID
 	}
+	var listenAddrs []string
+	if len(listenJSON) > 0 {
+		_ = json.Unmarshal(listenJSON, &listenAddrs)
+	}
 	return SellerProfile{
-		SellerID:  id.String(),
-		Name:      name,
-		Email:     em,
-		OnDuty:    onDuty,
-		PeerID:    p,
-		Models:    models,
-		CreatedAt: createdAt,
+		SellerID:    id.String(),
+		Name:        name,
+		Email:       em,
+		OnDuty:      onDuty,
+		PeerID:      p,
+		ListenAddrs: listenAddrs,
+		Models:      models,
+		CreatedAt:   createdAt,
 	}, nil
 }
 
@@ -212,8 +219,8 @@ func (s *PostgresStore) SetSellerDuty(sellerID string, onDuty bool) error {
 	return nil
 }
 
-// SetSellerPeer updates last reported libp2p peer id (often same as host id string).
-func (s *PostgresStore) SetSellerPeer(sellerID, peerID string) error {
+// SetSellerPresence updates reported libp2p peer id and optional QUIC listen multiaddrs (transport only).
+func (s *PostgresStore) SetSellerPresence(sellerID, peerID string, listenAddrs []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	p := strings.TrimSpace(peerID)
@@ -223,7 +230,13 @@ func (s *PostgresStore) SetSellerPeer(sellerID, peerID string) error {
 	} else {
 		pval = p
 	}
-	cmd, err := s.pool.Exec(ctx, `UPDATE seller_users SET peer_id = $2, updated_at = now() WHERE id = $1::uuid`, sellerID, pval)
+	addrJSON, err := json.Marshal(listenAddrs)
+	if err != nil {
+		return err
+	}
+	cmd, err := s.pool.Exec(ctx, `
+		UPDATE seller_users SET peer_id = $2, listen_addrs = $3::jsonb, updated_at = now() WHERE id = $1::uuid`,
+		sellerID, pval, addrJSON)
 	if err != nil {
 		return err
 	}

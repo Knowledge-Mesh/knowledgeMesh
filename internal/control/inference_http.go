@@ -75,11 +75,12 @@ func (s *HTTPServer) handleBuyerInferenceMatch(w http.ResponseWriter, r *http.Re
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"requestId":    req.RequestID,
-		"sellerId":     sellerID,
-		"sellerPeerId": sel.PeerID,
-		"price":        sel.Price,
-		"reputation":   sel.Reputation,
+		"requestId":          req.RequestID,
+		"sellerId":           sellerID,
+		"sellerPeerId":       sel.PeerID,
+		"sellerListenAddrs":  sel.ListenAddrs,
+		"price":              sel.Price,
+		"reputation":         sel.Reputation,
 	})
 }
 

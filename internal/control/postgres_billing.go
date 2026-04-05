@@ -83,7 +83,7 @@ func estimateTokensForMatch(v string) int {
 	return len(strings.Fields(v))
 }
 
-func buildSellerNodeForMatch(peerID string, onDuty bool, models []SellerModelRecord) types.SellerNode {
+func buildSellerNodeForMatch(peerID string, onDuty bool, models []SellerModelRecord, listenAddrs []string) types.SellerNode {
 	var skills []types.Skill
 	for _, m := range models {
 		if !m.Active {
@@ -113,6 +113,7 @@ func buildSellerNodeForMatch(peerID string, onDuty bool, models []SellerModelRec
 	}
 	return types.SellerNode{
 		PeerID:      peerID,
+		ListenAddrs: listenAddrs,
 		Skills:      skills,
 		ModelName:   modelName,
 		ModelType:   modelType,
@@ -148,7 +149,7 @@ func (s *PostgresStore) ListSellerNodesForMatch() ([]types.SellerNode, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	rows, err := s.pool.Query(ctx, `
-		SELECT id::text, peer_id, on_duty FROM seller_users
+		SELECT id::text, peer_id, on_duty, COALESCE(listen_addrs, '[]'::jsonb) FROM seller_users
 		WHERE status = 'active' AND on_duty = true
 		  AND peer_id IS NOT NULL AND trim(peer_id) <> ''`)
 	if err != nil {
@@ -159,14 +160,19 @@ func (s *PostgresStore) ListSellerNodesForMatch() ([]types.SellerNode, error) {
 	for rows.Next() {
 		var sid, peer string
 		var onDuty bool
-		if err := rows.Scan(&sid, &peer, &onDuty); err != nil {
+		var listenJSON []byte
+		if err := rows.Scan(&sid, &peer, &onDuty, &listenJSON); err != nil {
 			return nil, err
+		}
+		var listenAddrs []string
+		if len(listenJSON) > 0 {
+			_ = json.Unmarshal(listenJSON, &listenAddrs)
 		}
 		models, err := s.loadSellerModels(ctx, sid)
 		if err != nil {
 			return nil, err
 		}
-		node := buildSellerNodeForMatch(peer, onDuty, models)
+		node := buildSellerNodeForMatch(peer, onDuty, models, listenAddrs)
 		if len(node.Skills) == 0 {
 			continue
 		}

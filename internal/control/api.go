@@ -24,6 +24,8 @@ func NewAPICommand() *cobra.Command {
 		Short: "Run control pane HTTP API (buyers + sellers; requires PostgreSQL)",
 		Long: `Listens for HTTP requests. Buyer and seller accounts and seller models are stored in PostgreSQL (DATABASE_URL).
 
+On startup, pending SQL migrations are applied (embedded from internal/control/migrations via golang-migrate; version table schema_migrations).
+
 Set CONTROL_JWT_SECRET in production (or pass --jwt-secret).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dsn := strings.TrimSpace(os.Getenv("DATABASE_URL"))
@@ -39,11 +41,11 @@ Set CONTROL_JWT_SECRET in production (or pass --jwt-secret).`,
 			}
 
 			ctx := context.Background()
-			store, err := NewPostgresStore(ctx, dsn)
-			if err != nil {
+			if err := RunMigrations(ctx, dsn); err != nil {
 				return err
 			}
-			if err := store.Migrate(ctx); err != nil {
+			store, err := NewPostgresStore(ctx, dsn)
+			if err != nil {
 				return err
 			}
 

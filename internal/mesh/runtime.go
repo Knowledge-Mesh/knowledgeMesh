@@ -115,6 +115,10 @@ func (r *Runtime) RunInference(ctx context.Context, sessionID string, req types.
 		return types.InferenceResponse{}, fmt.Errorf("seller peer id: %w", err)
 	}
 
+	if err := network.ConnectToPeer(ctx, r.Host, pid, match.SellerListenAddrs); err != nil {
+		return types.InferenceResponse{}, fmt.Errorf("dial seller peer %s: %w", match.SellerPeerID, err)
+	}
+
 	body, err := json.Marshal(req)
 	if err != nil {
 		return types.InferenceResponse{}, err

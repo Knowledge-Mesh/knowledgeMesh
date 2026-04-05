@@ -11,6 +11,7 @@ knowledgeMesh is a minimal open-source scaffold for a modular marketplace-style 
 - libp2p (QUIC multiaddr)
 - `net/http` JSON APIs
 - PostgreSQL via the **control** HTTP API: buyer and seller accounts, seller models, billing (wallets, quotas, transaction ledger), and inference match metadata
+- **Schema migrations:** [golang-migrate](https://github.com/golang-migrate/migrate) SQL files in [`internal/control/migrations/`](./internal/control/migrations/) (embedded in the binary; applied automatically when `control api` starts)
 
 ## Compile and test
 
@@ -63,6 +64,45 @@ export CONTROL_JWT_SECRET='your-secret'   # recommended in production
 go run ./cmd/control api
 go run ./cmd/control api --http-addr :8090 --jwt-secret 'your-secret'
 ```
+
+**Database migrations**
+
+Migration files are versioned pairs under [`internal/control/migrations/`](./internal/control/migrations/) (for example `000001_initial.up.sql` / `000001_initial.down.sql`). The **`control api` process applies pending migrations automatically** on startup (embedded in the binary via [golang-migrate](https://github.com/golang-migrate/migrate)); you do not need a separate migrate step for normal development.
+
+Applied versions are stored in PostgreSQL in **`schema_migrations`**.
+
+#### Running migrations manually (CLI)
+
+Use this when you want to migrate **without** starting the HTTP server, to inspect version, or to roll back in ops.
+
+1. **Install the official CLI** (pick one):
+
+   ```bash
+   go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+   ```
+
+   Ensure `$(go env GOPATH)/bin` is on your `PATH`, or invoke the binary by full path.
+
+2. **From the repository root**, set `DATABASE_URL` to the same PostgreSQL DSN you use for `control api` (scheme `postgres://` or `postgresql://` is fine).
+
+3. **Commands** (path must point at the directory containing the numbered `.sql` files):
+
+   | Action | Command |
+   |--------|---------|
+   | Apply all pending migrations | `migrate -path internal/control/migrations -database "$DATABASE_URL" up` |
+   | Roll back the last migration | `migrate -path internal/control/migrations -database "$DATABASE_URL" down 1` |
+   | Show current version | `migrate -path internal/control/migrations -database "$DATABASE_URL" version` |
+   | Apply / roll back a specific number of steps | `migrate ... up N` / `migrate ... down N` |
+
+   Example session:
+
+   ```bash
+   export DATABASE_URL='postgres://user:pass@localhost:5432/knowledgemesh?sslmode=disable'
+   migrate -path internal/control/migrations -database "$DATABASE_URL" up
+   migrate -path internal/control/migrations -database "$DATABASE_URL" version
+   ```
+
+   **`migrate force`** can set the version in `schema_migrations` without running SQL (use only when you know the DB and files are in sync—for example after restoring a backup). See the [migrate CLI docs](https://github.com/golang-migrate/migrate/tree/master/cmd/migrate).
 
 **HTTP routes (summary)**
 
@@ -216,7 +256,7 @@ Helpers in `internal/network`: `RegisterRequestHandler`, `SendRequest`, `Connect
 - `internal/sandbox` — request-scoped runner + mock executor
 - `internal/api` — OpenAI/Anthropic HTTP handlers
 - `internal/mesh` — control client for match/tracking/complete, libp2p inference to matched seller
-- `internal/control` — PostgreSQL (buyers, sellers, models, billing, inference matches), HTTP API (`control api`), JWT, outbound client, libp2p handler (`control start`)
+- `internal/control` — PostgreSQL (buyers, sellers, models, billing, inference matches), HTTP API (`control api`), golang-migrate SQL in `migrations/`, JWT, outbound client, libp2p handler (`control start`)
 - `internal/network` — QUIC host, stream helpers, bootstrap
 
 ## Layout
