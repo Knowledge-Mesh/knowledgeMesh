@@ -51,14 +51,14 @@ func TestModelEngineFromSellerNode_OllamaWithoutBaseURL(t *testing.T) {
 		t.Fatalf("expected *ollama.Engine, got %T", engine)
 	}
 
-	// Backend should be MockBackend (no BaseURL configured)
-	_, isMock := ollamaEngine.Backend.(*ollama.MockBackend)
-	if !isMock {
-		t.Fatalf("expected *ollama.MockBackend, got %T", ollamaEngine.Backend)
+	// Empty BaseURL uses HTTPBackend defaulting to http://127.0.0.1:11434
+	_, isHTTP := ollamaEngine.Backend.(*ollama.HTTPBackend)
+	if !isHTTP {
+		t.Fatalf("expected *ollama.HTTPBackend, got %T", ollamaEngine.Backend)
 	}
 }
 
-func TestModelEngineFromSellerNode_OllamaEmptyBaseURL(t *testing.T) {
+func TestModelEngineFromSellerNode_OllamaWhitespaceBaseURLUsesHTTP(t *testing.T) {
 	node := types.SellerNode{
 		OnDuty: true,
 		Ollama: &types.OllamaSellerConfig{
@@ -76,10 +76,10 @@ func TestModelEngineFromSellerNode_OllamaEmptyBaseURL(t *testing.T) {
 		t.Fatalf("expected *ollama.Engine, got %T", engine)
 	}
 
-	// Whitespace-only BaseURL should fall back to MockBackend
-	_, isMock := ollamaEngine.Backend.(*ollama.MockBackend)
-	if !isMock {
-		t.Fatalf("expected *ollama.MockBackend for blank BaseURL, got %T", ollamaEngine.Backend)
+	// Whitespace-only BaseURL is treated as unset and defaults to 127.0.0.1:11434
+	_, isHTTP := ollamaEngine.Backend.(*ollama.HTTPBackend)
+	if !isHTTP {
+		t.Fatalf("expected *ollama.HTTPBackend for whitespace BaseURL, got %T", ollamaEngine.Backend)
 	}
 }
 

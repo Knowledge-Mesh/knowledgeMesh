@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/knowledgemeshgrid/knowledgemesh/pkg/types"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -19,9 +20,10 @@ type SellerProfile struct {
 	Email       string              `json:"email"`
 	OnDuty      bool                `json:"onDuty"`
 	PeerID      string              `json:"peerId,omitempty"`
-	ListenAddrs []string            `json:"listenAddrs,omitempty"`
-	Models      []SellerModelRecord `json:"models"`
-	CreatedAt   time.Time           `json:"createdAt,omitempty"`
+	ListenAddrs []string                `json:"listenAddrs,omitempty"`
+	Ollama      *types.OllamaSellerConfig `json:"ollama,omitempty"`
+	Models      []SellerModelRecord     `json:"models"`
+	CreatedAt   time.Time               `json:"createdAt,omitempty"`
 }
 
 // RegisterSeller inserts seller_users only (models added via ReplaceSellerModels).
@@ -93,10 +95,11 @@ func (s *PostgresStore) GetSellerProfile(sellerID string) (SellerProfile, error)
 	var onDuty bool
 	var peerID *string
 	var listenJSON []byte
+	var ollamaJSON []byte
 	var createdAt time.Time
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, display_name, email, on_duty, peer_id, COALESCE(listen_addrs, '[]'::jsonb), created_at FROM seller_users WHERE id = $1::uuid`, sellerID).
-		Scan(&id, &name, &em, &onDuty, &peerID, &listenJSON, &createdAt)
+		SELECT id, display_name, email, on_duty, peer_id, COALESCE(listen_addrs, '[]'::jsonb), ollama_config, created_at FROM seller_users WHERE id = $1::uuid`, sellerID).
+		Scan(&id, &name, &em, &onDuty, &peerID, &listenJSON, &ollamaJSON, &createdAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return SellerProfile{}, ErrSellerNotFound
@@ -115,6 +118,13 @@ func (s *PostgresStore) GetSellerProfile(sellerID string) (SellerProfile, error)
 	if len(listenJSON) > 0 {
 		_ = json.Unmarshal(listenJSON, &listenAddrs)
 	}
+	var ollamaCfg *types.OllamaSellerConfig
+	if len(ollamaJSON) > 0 {
+		var oc types.OllamaSellerConfig
+		if err := json.Unmarshal(ollamaJSON, &oc); err == nil {
+			ollamaCfg = &oc
+		}
+	}
 	return SellerProfile{
 		SellerID:    id.String(),
 		Name:        name,
@@ -122,6 +132,7 @@ func (s *PostgresStore) GetSellerProfile(sellerID string) (SellerProfile, error)
 		OnDuty:      onDuty,
 		PeerID:      p,
 		ListenAddrs: listenAddrs,
+		Ollama:      ollamaCfg,
 		Models:      models,
 		CreatedAt:   createdAt,
 	}, nil
@@ -237,6 +248,31 @@ func (s *PostgresStore) SetSellerPresence(sellerID, peerID string, listenAddrs [
 	cmd, err := s.pool.Exec(ctx, `
 		UPDATE seller_users SET peer_id = $2, listen_addrs = $3::jsonb, updated_at = now() WHERE id = $1::uuid`,
 		sellerID, pval, addrJSON)
+	if err != nil {
+		return err
+	}
+	if cmd.RowsAffected() == 0 {
+		return ErrSellerNotFound
+	}
+	return nil
+}
+
+// SetSellerOllamaConfig stores Ollama HTTP base URL and model tag mappings for seller inference.
+// Pass nil to clear.
+func (s *PostgresStore) SetSellerOllamaConfig(sellerID string, cfg *types.OllamaSellerConfig) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	var payload any
+	if cfg != nil {
+		b, err := json.Marshal(cfg)
+		if err != nil {
+			return err
+		}
+		payload = b
+	}
+	cmd, err := s.pool.Exec(ctx, `
+		UPDATE seller_users SET ollama_config = $2::jsonb, updated_at = now() WHERE id = $1::uuid`,
+		sellerID, payload)
 	if err != nil {
 		return err
 	}

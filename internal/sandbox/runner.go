@@ -52,6 +52,15 @@ func (r *Runner) Run(ctx context.Context, prompt string) (string, error) {
 	return response, nil
 }
 
+// PassthroughExecutor returns the input prompt unchanged. Use for seller inference when no
+// isolation layer is configured yet; keeps the Runner timeout and Executor contract.
+type PassthroughExecutor struct{}
+
+func (PassthroughExecutor) Execute(ctx context.Context, prompt string) (string, error) {
+	_ = ctx
+	return prompt, nil
+}
+
 type MockExecutor struct {
 	Response string
 	Delay    time.Duration

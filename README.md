@@ -40,7 +40,7 @@ Commands are provided by the **`knowledgeMesh`** umbrella binary (`serve`, `mesh
 | `buyer` | `start` | Same as `knowledgeMesh mesh serve` (buyer API + libp2p + control). |
 | `buyer` | `prompt` | Log in to control and send one `POST /v1/chat/completions` to a buyer API (`--api-url`, `--prompt`, …). |
 | `seller` | `register` | Register a seller on the control pane (`--control-url`, `--name`, `--email`, `--password`). |
-| `seller` | `serve` | QUIC listener + inference; requires `--control-url`, `--email`, `--password`; optional `--p2p-addr`. |
+| `seller` | `serve` | QUIC listener + inference; requires `--control-url`, `--email`, `--password`; optional `--p2p-addr`. Model backend (e.g. **Ollama**) from control API — see [Seller](#seller). |
 | `control` | `api` | HTTP control pane + PostgreSQL (`DATABASE_URL`, `--http-addr`, `--jwt-secret`). |
 | `control` | `start` | libp2p control protocol node (`/knowledgemesh/control/1.0.0`), optional `--p2p-addr`. |
 | `demo` | `run` | Placeholder demo workflow. |
@@ -67,7 +67,7 @@ go run ./cmd/control api --http-addr :8090 --jwt-secret 'your-secret'
 
 **Database migrations**
 
-Migration files are versioned pairs under [`internal/control/migrations/`](./internal/control/migrations/) (for example `000001_initial.up.sql` / `000001_initial.down.sql`). The **`control api` process applies pending migrations automatically** on startup (embedded in the binary via [golang-migrate](https://github.com/golang-migrate/migrate)); you do not need a separate migrate step for normal development.
+Migration files are versioned pairs under [`internal/control/migrations/`](./internal/control/migrations/) (for example `000001_initial`, `000002_seller_listen_addrs`, `000003_seller_ollama_config`). The **`control api` process applies pending migrations automatically** on startup (embedded in the binary via [golang-migrate](https://github.com/golang-migrate/migrate)); you do not need a separate migrate step for normal development.
 
 Applied versions are stored in PostgreSQL in **`schema_migrations`**.
 
@@ -112,7 +112,7 @@ Use this when you want to migrate **without** starting the HTTP server, to inspe
 | **Buyers** | | |
 | `POST` | `/v1/control/buyers/register` | JSON: `name`, `email`, `password` → `buyerId` |
 | `POST` | `/v1/control/buyers/login` | JSON: `email`, `password` → `accessToken`, `buyerId`, `name`, `email` |
-| `POST` | `/v1/control/buyers/me/inference/match` | Bearer buyer JWT; JSON [`InferenceRequest`](./pkg/types/core.go) meta → `sellerPeerId`, `sellerId`, `requestId`, … |
+| `POST` | `/v1/control/buyers/me/inference/match` | Bearer buyer JWT; JSON [`InferenceRequest`](./pkg/types/core.go) → `sellerPeerId`, `sellerListenAddrs`, `sellerId`, `requestId`, price, … |
 | `POST` | `/v1/control/buyers/me/inference/tracking` | Bearer buyer JWT; `requestId`, `phase`, optional `meta` (audit) |
 | `POST` | `/v1/control/buyers/me/inference/complete` | Bearer buyer JWT; `requestId`, `totalTokens`, `success` → wallet settlement |
 | **Sellers** | | |
@@ -122,7 +122,8 @@ Use this when you want to migrate **without** starting the HTTP server, to inspe
 | `PUT` | `/v1/control/sellers/me/duty` | JSON: `onDuty` |
 | `PUT` | `/v1/control/sellers/me/models` | JSON: `models` array (replaces models) |
 | `PATCH` | `/v1/control/sellers/me/models/{id}` | Toggle `active`, etc. |
-| `POST` | `/v1/control/sellers/me/presence` | JSON: `peerId` (libp2p host id string) |
+| `POST` | `/v1/control/sellers/me/presence` | JSON: `peerId`, optional `listenAddrs` (QUIC multiaddrs) |
+| `PUT` | `/v1/control/sellers/me/ollama` | JSON: [`OllamaSellerConfig`](./pkg/types/ollama.go) (`baseURL`, `models` mapping); `null` clears |
 | `POST` | `/v1/control/sellers/me/inference/tracking` | Bearer seller JWT; execution audit for a `requestId` |
 
 **Libp2p control node** (separate from the HTTP API): ping/pong JSON over `/knowledgemesh/control/1.0.0`:
@@ -143,14 +144,14 @@ go run ./cmd/control start --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
      --email you@example.com \
      --password 'secure-password'
    ```
-3. **Start the buyer mesh** (HTTP API + libp2p). You must pass credentials so the process can log in to the control pane. **Matchmaking and billing** run on the control API (PostgreSQL); ensure at least one seller is registered, on duty, has models, and has posted **presence** (`peerId`) so the control pane can return a `sellerPeerId` on match.
+3. **Start the buyer mesh** (HTTP API + libp2p). You must pass credentials so the process can log in to the control pane. **Matchmaking and billing** run on the control API (PostgreSQL); ensure at least one seller is registered, on duty, has models, and has posted **presence** (`peerId` and **listen multiaddrs**) so the control pane can return `sellerPeerId` and **`sellerListenAddrs`** on match (the buyer dials the seller using those addresses).
    ```bash
    go run ./cmd/knowledgeMesh mesh serve \
      --control-url http://127.0.0.1:8090 \
      --email you@example.com \
-     --password 'secure-password' \
-     --bootstrap '/ip4/127.0.0.1/udp/4001/quic-v1/p2p/<SELLER_PEER_ID>'
+     --password 'secure-password'
    ```
+   Add **`--bootstrap '/ip4/127.0.0.1/udp/<port>/quic-v1/p2p/<SELLER_PEER_ID>'`** if the seller’s addresses in the control DB are not reachable from this host (for example NAT or a stale listen list). The seller logs a full bootstrap line when it starts.
    The process logs a **session token**; use it as `Authorization: Bearer <token>` or `X-Session-ID: <token>` on the buyer HTTP API below.
 
    The same flags work for **`go run ./cmd/buyer start`** (equivalent to `knowledgeMesh mesh serve`).
@@ -174,9 +175,9 @@ go run ./cmd/control start --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
 | `--password` | **Required.** Buyer password |
 | `--api-addr` | Buyer HTTP API listen address (default `:8080`) |
 | `--p2p-addr` | libp2p QUIC listen multiaddr |
-| `--bootstrap` | Repeatable seller dial multiaddr (needed to reach the matched seller over the network) |
+| `--bootstrap` | Optional repeatable seller multiaddr. Use when you cannot rely on **`sellerListenAddrs`** from the control pane (same LAN usually works without it once the seller has posted presence). |
 
-**Local two-terminal sketch:** (1) Run `control api` with PostgreSQL. (2) Register buyer and seller on the control API; configure seller models, set on duty, run `seller serve` with control login and note the printed bootstrap line. (3) Run `mesh serve` with the same control URL and buyer credentials, and pass `--bootstrap` from the seller. Inference calls the control pane for **match → tracking → complete** before and after libp2p QUIC inference.
+**Local two-terminal sketch:** (1) Run `control api` with PostgreSQL. (2) Register buyer and seller; configure seller models, duty, and (for Ollama) `PUT /v1/control/sellers/me/ollama`; run **`seller serve`** so presence and listen addrs are stored. (3) Run **`mesh serve`** with buyer credentials; add `--bootstrap` only if dialing via stored addresses fails. Inference uses the control pane for **match → tracking → complete** and libp2p QUIC for the model call.
 
 ## Examples and quick binary check
 
@@ -191,9 +192,11 @@ After `go build -o bin/ ./cmd/...`, smoke-test the main binaries (see [CLI refer
 
 ```bash
 ./bin/knowledgeMesh serve
-./bin/knowledgeMesh mesh serve --control-url http://127.0.0.1:8090 --email you@example.com --password '...' --bootstrap '<multiaddr>'
+./bin/knowledgeMesh mesh serve --control-url http://127.0.0.1:8090 --email you@example.com --password '...'
+./bin/knowledgeMesh mesh serve --control-url http://127.0.0.1:8090 --email you@example.com --password '...' --bootstrap '/ip4/127.0.0.1/udp/4001/quic-v1/p2p/<PEER_ID>'
 ./bin/buyer register --control-url http://127.0.0.1:8090 --name 'Me' --email you@example.com --password '...'
-./bin/buyer start --control-url http://127.0.0.1:8090 --email you@example.com --password '...' --bootstrap '<multiaddr>'
+./bin/buyer start --control-url http://127.0.0.1:8090 --email you@example.com --password '...'
+./bin/buyer start --control-url http://127.0.0.1:8090 --email you@example.com --password '...' --bootstrap '/ip4/127.0.0.1/udp/4001/quic-v1/p2p/<PEER_ID>'
 ./bin/seller register --control-url http://127.0.0.1:8090 --name 'Seller' --email seller@example.com --password '...'
 ./bin/seller serve --control-url http://127.0.0.1:8090 --email seller@example.com --password '...'
 ./bin/control api
@@ -221,9 +224,18 @@ go run ./cmd/seller serve \
   --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
 ```
 
-Use the printed **dial this bootstrap** line for the buyer mesh’s `--bootstrap`. Models, token limits, and rates are managed through the control API (`PUT /v1/control/sellers/me/models`, etc.) after login.
+After **`POST /v1/control/sellers/login`**, configure Ollama (example: map catalog model name `my-chat` to local tag `llama3:latest`):
 
-Optional Anthropic / OpenAI / Ollama integration is implemented under `internal/seller/anthropic`, `internal/seller/openai`, and `internal/seller/ollama` for custom wiring; the default `seller serve` path uses the sandbox and engine selection from seller node metadata.
+```bash
+curl -sS -X PUT 'http://127.0.0.1:8090/v1/control/sellers/me/ollama' \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $SELLER_ACCESS_TOKEN" \
+  -d '{"baseURL":"http://127.0.0.1:11434","models":[{"id":"my-chat","name":"llama3:latest"}]}'
+```
+
+Use the printed **dial this bootstrap** line for the buyer’s **`--bootstrap`** when you need a manual dial path. Models, token limits, and rates are set with **`PUT /v1/control/sellers/me/models`**. **Ollama** endpoint and model-tag mapping are stored in PostgreSQL via **`PUT /v1/control/sellers/me/ollama`** ([`OllamaSellerConfig`](./pkg/types/ollama.go): `baseURL`, e.g. `http://127.0.0.1:11434`, and `models` with `id` = marketplace model name from your declared models, `name` = Ollama tag such as `llama3:latest`). Empty `baseURL` defaults to `http://127.0.0.1:11434`. Send JSON **`null`** to clear Ollama config. **Restart `seller serve`** after changing Ollama settings (profile is read at startup).
+
+**Inference backends (seller):** the mesh loads **`Ollama`** settings from the control API (`GET /v1/control/sellers/me` after you **`PUT .../ollama`**). **`ModelEngineFromSellerNode`** (`internal/seller/engine.go`) chooses **OpenAI** → **Anthropic** → **Ollama** → **mock** based on which blocks are present on the node (today the control-backed profile supplies **Ollama**; Anthropic/OpenAI are for custom wiring). Prompts still go through the **sandbox** `Runner` before the backend (`internal/sandbox`); **`seller serve`** uses a **passthrough** executor so the buyer’s text reaches the model (tests and demos may still use **`MockExecutor`**).
 
 ## Buyer HTTP API (OpenAI / Anthropic style)
 
@@ -246,14 +258,14 @@ With **`knowledgeMesh mesh serve`** (control pane + real inference):
 | `/knowledgemesh/control/1.0.0` | Control streams (`control start`) |
 | `/knowledgemesh/inference/1.0.0` | Inference request/response |
 
-Helpers in `internal/network`: `RegisterRequestHandler`, `SendRequest`, `ConnectBootstrapPeers`, `NewLocalRegistry().BootstrapList()`.
+Helpers in `internal/network`: `RegisterRequestHandler`, `SendRequest`, `ConnectBootstrapPeers`, `ConnectToPeer`, `NewLocalRegistry().BootstrapList()`.
 
 ## Current modules
 
-- `internal/seller` — Anthropic / OpenAI / Ollama facades; `serve` uses control for profile and tracking
+- `internal/seller` — Anthropic / OpenAI / Ollama facades; `serve` loads profile (models, duty, **Ollama** from PostgreSQL) and posts inference tracking to control
 - `internal/buyer` — session state after control login; CLI commands for `buyer` (`register`, `prompt` in `commands.go`)
 - `internal/matchmaker` — seller selection by skill, duty, price cap, then price/reputation (used **inside** the control pane for `/buyers/me/inference/match`)
-- `internal/sandbox` — request-scoped runner + mock executor
+- `internal/sandbox` — request-scoped runner; **`PassthroughExecutor`** on **`seller serve`**, **`MockExecutor`** for tests/mocks
 - `internal/api` — OpenAI/Anthropic HTTP handlers
 - `internal/mesh` — control client for match/tracking/complete, libp2p inference to matched seller
 - `internal/control` — PostgreSQL (buyers, sellers, models, billing, inference matches), HTTP API (`control api`), golang-migrate SQL in `migrations/`, JWT, outbound client, libp2p handler (`control start`)

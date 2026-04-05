@@ -127,14 +127,15 @@ func (c *Client) RegisterSeller(name, email, password string) (sellerID string, 
 // LoginSeller returns an access token and seller profile from the control pane.
 func (c *Client) LoginSeller(email, password string) (accessToken string, prof SellerProfile, err error) {
 	var out struct {
-		AccessToken string                `json:"accessToken"`
-		SellerID    string                `json:"sellerId"`
-		Name        string                `json:"name"`
-		Email       string                `json:"email"`
-		OnDuty      bool                  `json:"onDuty"`
-		PeerID      string                `json:"peerId"`
-		ListenAddrs []string              `json:"listenAddrs"`
-		Models      []SellerModelRecord   `json:"models"`
+		AccessToken string                  `json:"accessToken"`
+		SellerID    string                  `json:"sellerId"`
+		Name        string                  `json:"name"`
+		Email       string                  `json:"email"`
+		OnDuty      bool                    `json:"onDuty"`
+		PeerID      string                  `json:"peerId"`
+		ListenAddrs []string                `json:"listenAddrs"`
+		Ollama      *types.OllamaSellerConfig `json:"ollama"`
+		Models      []SellerModelRecord     `json:"models"`
 	}
 	err = c.doJSON(http.MethodPost, "/v1/control/sellers/login", map[string]string{
 		"email":    email,
@@ -150,6 +151,7 @@ func (c *Client) LoginSeller(email, password string) (accessToken string, prof S
 		OnDuty:      out.OnDuty,
 		PeerID:      out.PeerID,
 		ListenAddrs: out.ListenAddrs,
+		Ollama:      out.Ollama,
 		Models:      out.Models,
 	}, nil
 }
@@ -157,13 +159,14 @@ func (c *Client) LoginSeller(email, password string) (accessToken string, prof S
 // GetSellerMe fetches the current seller (Bearer token).
 func (c *Client) GetSellerMe(token string) (SellerProfile, error) {
 	var out struct {
-		SellerID    string              `json:"sellerId"`
-		Name        string              `json:"name"`
-		Email       string              `json:"email"`
-		OnDuty      bool                `json:"onDuty"`
-		PeerID      string              `json:"peerId"`
-		ListenAddrs []string            `json:"listenAddrs"`
-		Models      []SellerModelRecord `json:"models"`
+		SellerID    string                    `json:"sellerId"`
+		Name        string                    `json:"name"`
+		Email       string                    `json:"email"`
+		OnDuty      bool                      `json:"onDuty"`
+		PeerID      string                    `json:"peerId"`
+		ListenAddrs []string                  `json:"listenAddrs"`
+		Ollama      *types.OllamaSellerConfig `json:"ollama"`
+		Models      []SellerModelRecord       `json:"models"`
 	}
 	err := c.doJSON(http.MethodGet, "/v1/control/sellers/me", nil, &out, token)
 	if err != nil {
@@ -176,6 +179,7 @@ func (c *Client) GetSellerMe(token string) (SellerProfile, error) {
 		OnDuty:      out.OnDuty,
 		PeerID:      out.PeerID,
 		ListenAddrs: out.ListenAddrs,
+		Ollama:      out.Ollama,
 		Models:      out.Models,
 	}, nil
 }
@@ -194,6 +198,16 @@ func (c *Client) PutSellerDuty(token string, onDuty bool) (SellerProfile, error)
 func (c *Client) PutSellerModels(token string, models []SellerModelRecord) (SellerProfile, error) {
 	var out map[string]any
 	err := c.doJSON(http.MethodPut, "/v1/control/sellers/me/models", map[string]any{"models": models}, &out, token)
+	if err != nil {
+		return SellerProfile{}, err
+	}
+	return decodeSellerProfileMap(out)
+}
+
+// PutSellerOllama stores Ollama base URL and model tag mappings. Pass nil to clear.
+func (c *Client) PutSellerOllama(token string, cfg *types.OllamaSellerConfig) (SellerProfile, error) {
+	var out map[string]any
+	err := c.doJSON(http.MethodPut, "/v1/control/sellers/me/ollama", cfg, &out, token)
 	if err != nil {
 		return SellerProfile{}, err
 	}

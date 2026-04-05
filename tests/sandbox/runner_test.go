@@ -10,6 +10,20 @@ import (
 	"github.com/knowledgemeshgrid/knowledgemesh/internal/sandbox"
 )
 
+func TestPassthroughExecutorForwardsPrompt(t *testing.T) {
+	t.Parallel()
+
+	runner := sandbox.NewRunner(sandbox.PassthroughExecutor{}, time.Second)
+	in := "user prompt for the model"
+	got, err := runner.Run(context.Background(), in)
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if got != in {
+		t.Fatalf("got %q want %q", got, in)
+	}
+}
+
 func TestRunnerReturnsMockResponse(t *testing.T) {
 	t.Parallel()
 

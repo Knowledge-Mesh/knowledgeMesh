@@ -44,5 +44,6 @@ func SellerNodeFromControl(peerID string, prof control.SellerProfile) types.Sell
 		Reputation:  1,
 		OnDuty:      prof.OnDuty,
 		TokenLimits: limits,
+		Ollama:      prof.Ollama,
 	}
 }

@@ -16,7 +16,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewServeCommand runs a libp2p QUIC listener, registers inference, and executes via sandbox + mock engine.
+// NewServeCommand runs a libp2p QUIC listener, registers inference, and executes via sandbox + configured model backends (Ollama/OpenAI/Anthropic from control API).
 // Requires control pane login (--control-url, --email, --password). Model list and duty come from PostgreSQL via the control API.
 func NewServeCommand() *cobra.Command {
 	var (
@@ -72,9 +72,9 @@ func NewServeCommand() *cobra.Command {
 			if len(node.Skills) == 0 {
 				log.Printf("warning: no active models in control profile; declare models via PUT /v1/control/sellers/me/models")
 			}
-			log.Printf("seller loaded from control: onDuty=%v models=%d", node.OnDuty, len(node.Skills))
+			log.Printf("seller loaded from control: onDuty=%v models=%d ollamaConfigured=%v", node.OnDuty, len(node.Skills), prof.Ollama != nil)
 
-			runner := sandbox.NewRunner(sandbox.MockExecutor{}, 30*time.Second)
+			runner := sandbox.NewRunner(sandbox.PassthroughExecutor{}, 30*time.Second)
 			inf := NewInferenceServiceForSeller(node, runner, cc, tok)
 			RegisterInferenceHandler(h, inf)
 

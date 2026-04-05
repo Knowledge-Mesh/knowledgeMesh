@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+
+	"github.com/knowledgemeshgrid/knowledgemesh/pkg/types"
 )
 
 type sellerRegisterReq struct {
@@ -27,7 +29,7 @@ type sellerPresenceReq struct {
 }
 
 func sellerProfileJSON(prof SellerProfile) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		"sellerId":    prof.SellerID,
 		"name":        prof.Name,
 		"email":       prof.Email,
@@ -36,6 +38,10 @@ func sellerProfileJSON(prof SellerProfile) map[string]any {
 		"listenAddrs": prof.ListenAddrs,
 		"models":      prof.Models,
 	}
+	if prof.Ollama != nil {
+		m["ollama"] = prof.Ollama
+	}
+	return m
 }
 
 func (s *HTTPServer) handleSellerRegister(w http.ResponseWriter, r *http.Request) {
@@ -286,6 +292,34 @@ func (s *HTTPServer) handleSellerPresence(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := s.Store.SetSellerPresence(sellerID, body.PeerID, body.ListenAddrs); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	prof, err := s.Store.GetSellerProfile(sellerID)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(sellerProfileJSON(prof))
+}
+
+func (s *HTTPServer) handleSellerOllama(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sellerID, err := s.sellerIDFromRequest(r)
+	if err != nil {
+		writeJSONErr(w, http.StatusUnauthorized, "invalid token")
+		return
+	}
+	var cfg *types.OllamaSellerConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if err := s.Store.SetSellerOllamaConfig(sellerID, cfg); err != nil {
 		writeJSONErr(w, http.StatusBadRequest, err.Error())
 		return
 	}

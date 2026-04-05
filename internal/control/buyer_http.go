@@ -43,6 +43,7 @@ func (s *HTTPServer) Handler() http.Handler {
 	mux.HandleFunc("PUT /v1/control/sellers/me/models", s.handleSellerModelsPut)
 	mux.HandleFunc("PATCH /v1/control/sellers/me/models/{id}", s.handleSellerModelPatch)
 	mux.HandleFunc("POST /v1/control/sellers/me/presence", s.handleSellerPresence)
+	mux.HandleFunc("PUT /v1/control/sellers/me/ollama", s.handleSellerOllama)
 
 	mux.HandleFunc("POST /v1/control/buyers/me/inference/match", s.handleBuyerInferenceMatch)
 	mux.HandleFunc("POST /v1/control/buyers/me/inference/tracking", s.handleBuyerInferenceTracking)
