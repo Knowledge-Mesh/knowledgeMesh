@@ -13,6 +13,7 @@ import (
 	"github.com/knowledgemeshgrid/knowledgemesh/internal/control"
 	"github.com/knowledgemeshgrid/knowledgemesh/internal/network"
 	"github.com/knowledgemeshgrid/knowledgemesh/internal/sandbox"
+	"github.com/knowledgemeshgrid/knowledgemesh/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -24,6 +25,7 @@ func NewServeCommand() *cobra.Command {
 		controlURL string
 		email      string
 		password   string
+		ollamaURL  string
 	)
 
 	cmd := &cobra.Command{
@@ -68,7 +70,12 @@ func NewServeCommand() *cobra.Command {
 				return fmt.Errorf("control profile: %w", err)
 			}
 
-			node := SellerNodeFromControl(pid, prof)
+			var node types.SellerNode
+			if strings.TrimSpace(ollamaURL) != "" {
+				node = SellerNodeFromControlWithOllama(pid, prof, ollamaURL)
+			} else {
+				node = SellerNodeFromControl(pid, prof)
+			}
 			if len(node.Skills) == 0 {
 				log.Printf("warning: no active models in control profile; declare models via PUT /v1/control/sellers/me/models")
 			}
@@ -92,5 +99,6 @@ func NewServeCommand() *cobra.Command {
 	cmd.Flags().StringVar(&controlURL, "control-url", "", "Control pane base URL (required), e.g. http://127.0.0.1:8090")
 	cmd.Flags().StringVar(&email, "email", "", "Seller email for control login (required)")
 	cmd.Flags().StringVar(&password, "password", "", "Seller password for control login (required)")
+	cmd.Flags().StringVar(&ollamaURL, "ollama-url", "", "Ollama server URL (e.g. http://127.0.0.1:11434). Enables real local inference instead of mock.")
 	return cmd
 }

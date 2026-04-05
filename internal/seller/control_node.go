@@ -1,9 +1,32 @@
 package seller
 
 import (
+	"strings"
+
 	"github.com/knowledgemeshgrid/knowledgemesh/internal/control"
 	"github.com/knowledgemeshgrid/knowledgemesh/pkg/types"
 )
+
+// SellerNodeFromControlWithOllama builds a SellerNode with Ollama config when ollamaURL is non-empty.
+func SellerNodeFromControlWithOllama(peerID string, prof control.SellerProfile, ollamaURL string) types.SellerNode {
+	node := SellerNodeFromControl(peerID, prof)
+	if strings.TrimSpace(ollamaURL) != "" {
+		var models []types.OllamaModelDecl
+		for _, m := range prof.Models {
+			if m.Active {
+				models = append(models, types.OllamaModelDecl{
+					ID:   m.ID,
+					Name: m.ModelName,
+				})
+			}
+		}
+		node.Ollama = &types.OllamaSellerConfig{
+			BaseURL: ollamaURL,
+			Models:  models,
+		}
+	}
+	return node
+}
 
 // SellerNodeFromControl builds a SellerNode for inference + matchmaking from control pane profile.
 func SellerNodeFromControl(peerID string, prof control.SellerProfile) types.SellerNode {
