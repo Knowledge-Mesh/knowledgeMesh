@@ -11,18 +11,32 @@ import (
 )
 
 func NewServeCommand() *cobra.Command {
-	var apiAddr string
-	var p2pAddr string
+	var (
+		apiAddr string
+		p2pAddr string
+		relays  []string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start API and p2p node",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			h, err := network.NewHost(context.Background(), p2pAddr)
+			ctx := context.Background()
+			cfg := network.DefaultHostConfig(p2pAddr)
+			cfg.MergeStaticRelays(relays)
+			h, hpMgr, err := network.NewHostWithConfigAndHolePunch(ctx, cfg)
 			if err != nil {
 				return err
 			}
 			defer h.Close()
+			defer hpMgr.Close()
+			hpMgr.Start(ctx)
+			connTracker := network.NewConnectionTypeTracker(h)
+			defer connTracker.Close()
+			connTracker.Start()
+
+			netMon := network.NewNetworkMonitor(h, hpMgr, connTracker, network.DefaultNetworkMonitorConfig())
+			netMon.Start(ctx)
 
 			server := api.NewServer(apiAddr, nil)
 			log.Printf("api listening on %s", apiAddr)
@@ -33,6 +47,7 @@ func NewServeCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&apiAddr, "api-addr", ":8080", "API listen address")
 	cmd.Flags().StringVar(&p2pAddr, "p2p-addr", network.DefaultQUICListenAddr, "p2p QUIC listen multiaddr")
+	cmd.Flags().StringArrayVar(&relays, "relay", nil, "Circuit relay v2 multiaddr (repeatable); merged with LIBP2P_STATIC_RELAYS")
 	return cmd
 }
 

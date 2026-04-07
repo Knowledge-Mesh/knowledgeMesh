@@ -24,18 +24,19 @@ go build ./...
 go test ./...
 ```
 
-That produces one binary per `cmd/*` package (for example `bin/knowledgeMesh`, `bin/buyer`, `bin/seller`, `bin/control`, `bin/demo`). On Windows, use `bin\knowledgeMesh.exe`, etc.
+That produces one binary per `cmd/*` package (for example `bin/knowledgeMesh`, `bin/buyer`, `bin/seller`, `bin/control`, `bin/relay`, `bin/demo`). On Windows, use `bin\knowledgeMesh.exe`, etc.
 
 Examples below use `go run ./cmd/...`; after building, run the same flags on `./bin/<name>`.
 
 ## CLI reference
 
-Commands are provided by the **`knowledgeMesh`** umbrella binary (`serve`, `mesh serve`), plus dedicated **`buyer`**, **`seller`**, **`control`**, and **`demo`** binaries. Seller registration and the seller node use **`seller`** only (no duplicate under `knowledgeMesh`). The `knowledgeMesh serve` command is implemented in `internal/sandbox` (mock API path).
+Commands are provided by the **`knowledgeMesh`** umbrella binary (`serve`, `mesh serve`), plus dedicated **`buyer`**, **`seller`**, **`control`**, **`relay`**, and **`demo`** binaries. Seller registration and the seller node use **`seller`** only (no duplicate under `knowledgeMesh`). The `knowledgeMesh serve` command is implemented in `internal/sandbox` (mock API path).
 
 | Binary | Command | Purpose |
 |--------|---------|---------|
 | `knowledgeMesh` | `serve` | Buyer HTTP API + libp2p host, **mock inference** only (`Mesh` nil). Flags: `--api-addr`, `--p2p-addr`. |
 | `knowledgeMesh` | `mesh serve` | Buyer mesh: control login, control matchmaking/billing, libp2p inference to matched seller. |
+| `knowledgeMesh` | `mesh p2p-debug-peer <peerID>` | Query local P2P debug HTTP API and print peer connectivity details (type, paths, last hole punch). |
 | `buyer` | `register` | Register a buyer on the control pane (`--control-url`, `--name`, `--email`, `--password`). |
 | `buyer` | `start` | Same as `knowledgeMesh mesh serve` (buyer API + libp2p + control). |
 | `buyer` | `prompt` | Log in to control and send one `POST /v1/chat/completions` to a buyer API (`--api-url`, `--prompt`, …). |
@@ -43,6 +44,7 @@ Commands are provided by the **`knowledgeMesh`** umbrella binary (`serve`, `mesh
 | `seller` | `serve` | QUIC listener + inference; requires `--control-url`, `--email`, `--password`; optional `--p2p-addr`. Model backend (e.g. **Ollama**) from control API — see [Seller](#seller). |
 | `control` | `api` | HTTP control pane + PostgreSQL (`DATABASE_URL`, `--http-addr`, `--jwt-secret`). |
 | `control` | `start` | libp2p control protocol node (`/knowledgemesh/control/1.0.0`), optional `--p2p-addr`. |
+| `relay` | `serve` | Minimal stateless **circuit relay v2 service** (accepts reservations, relayed connections, env/flag limits). |
 | `demo` | `run` | Placeholder demo workflow. |
 
 ## Control pane (HTTP API + PostgreSQL)
@@ -174,8 +176,30 @@ go run ./cmd/control start --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
 | `--email` | **Required.** Buyer email (registered on the control pane) |
 | `--password` | **Required.** Buyer password |
 | `--api-addr` | Buyer HTTP API listen address (default `:8080`) |
-| `--p2p-addr` | libp2p QUIC listen multiaddr |
+| `--p2p-addr` | libp2p QUIC listen multiaddr (host also listens on **`/ip4/0.0.0.0/tcp/0`** for TCP fallback) |
+| `--relay` | Optional repeatable **circuit relay v2** multiaddr (must include `/p2p/<relayID>`). Merged with **`LIBP2P_STATIC_RELAYS`** for AutoRelay (NAT / CGNAT). |
 | `--bootstrap` | Optional repeatable seller multiaddr. Use when you cannot rely on **`sellerListenAddrs`** from the control pane (same LAN usually works without it once the seller has posted presence). |
+| `--p2p-debug` | Enable verbose P2P diagnostics (NAT reachability, connection type transitions, hole punch attempts/failures). |
+| `--p2p-debug-http` | Optional debug HTTP listen addr (example `127.0.0.1:9091`) exposing JSON connectivity diagnostics. Implies `--p2p-debug`. |
+
+Environment toggles for debug:
+
+- `KM_P2P_DEBUG` — set `1` / `true` / `yes` / `on` to enable verbose P2P debug logging.
+- `KM_P2P_DEBUG_HTTP` — optional debug HTTP listen addr (for example `127.0.0.1:9091`).
+
+Debug endpoints (when enabled):
+
+- `GET /debug/p2p/peer/<peerID>` — peer connection details, computed connection type, tagged type, last hole punch result.
+- `GET /debug/p2p/reachability` — latest local AutoNAT reachability (`unknown` / `public` / `private`).
+
+Debug CLI example:
+
+```bash
+KM_P2P_DEBUG=1 KM_P2P_DEBUG_HTTP=127.0.0.1:9091 \
+  go run ./cmd/knowledgeMesh mesh serve --control-url http://127.0.0.1:8090 --email you@example.com --password '...'
+
+go run ./cmd/knowledgeMesh mesh p2p-debug-peer <PEER_ID> --http http://127.0.0.1:9091
+```
 
 **Local two-terminal sketch:** (1) Run `control api` with PostgreSQL. (2) Register buyer and seller; configure seller models, duty, and (for Ollama) `PUT /v1/control/sellers/me/ollama`; run **`seller serve`** so presence and listen addrs are stored. (3) Run **`mesh serve`** with buyer credentials; add `--bootstrap` only if dialing via stored addresses fails. Inference uses the control pane for **match → tracking → complete** and libp2p QUIC for the model call.
 
@@ -201,7 +225,44 @@ After `go build -o bin/ ./cmd/...`, smoke-test the main binaries (see [CLI refer
 ./bin/seller serve --control-url http://127.0.0.1:8090 --email seller@example.com --password '...'
 ./bin/control api
 ./bin/control start
+./bin/relay serve
 ./bin/demo run
+```
+
+## Relay node (circuit relay v2 service)
+
+Run a dedicated relay service process (stateless):
+
+```bash
+go run ./cmd/relay serve
+go run ./cmd/relay serve --listen-addr /ip4/0.0.0.0/udp/4001/quic-v1
+```
+
+Flags:
+
+| Flag | Purpose |
+|------|---------|
+| `--listen-addr` | libp2p listen multiaddr (default `/ip4/0.0.0.0/udp/4001/quic-v1`) |
+| `--max-reservations` | Max active relay reservations |
+| `--max-circuits-per-peer` | Max relayed circuits per peer |
+| `--max-bandwidth-per-peer-bytes` | Max relayed bytes per peer circuit window |
+
+Environment overrides:
+
+- `RELAY_LISTEN_ADDR`
+- `RELAY_MAX_RESERVATIONS`
+- `RELAY_MAX_CIRCUITS_PER_PEER`
+- `RELAY_MAX_BANDWIDTH_PER_PEER_BYTES`
+- `RELAY_CONN_LOW_WATER`
+- `RELAY_CONN_HIGH_WATER`
+- `RELAY_CONN_GRACE_SECONDS`
+- `RELAY_MAX_CIRCUIT_DURATION_SECONDS`
+
+Docker (lightweight service):
+
+```bash
+docker build -f Dockerfile.relay -t knowledgemesh-relay .
+docker run --rm -p 4001:4001/tcp -p 4001:4001/udp knowledgemesh-relay
 ```
 
 ## Seller
@@ -269,11 +330,12 @@ Helpers in `internal/network`: `RegisterRequestHandler`, `SendRequest`, `Connect
 - `internal/api` — OpenAI/Anthropic HTTP handlers
 - `internal/mesh` — control client for match/tracking/complete, libp2p inference to matched seller
 - `internal/control` — PostgreSQL (buyers, sellers, models, billing, inference matches), HTTP API (`control api`), golang-migrate SQL in `migrations/`, JWT, outbound client, libp2p handler (`control start`)
-- `internal/network` — QUIC host, stream helpers, bootstrap
+- `internal/network` — libp2p host (**QUIC + TCP**, Noise, Yamux, NAT, **AutoNAT v2**, relay + **AutoRelay**, **DCUtR** hole punching, connmgr, ping), plus `HolePunchManager` retries, `ConnectionTypeTracker`, size-aware `MessageRouter`, `NetworkMonitor`, relay→direct upgrade pruning, optional **`km_p2p_*` Prometheus metrics**, and optional P2P connectivity debug utilities (NAT reachability logging, connection path logs, hole punch result snapshots, debug HTTP API); see `HostConfig` / `NewHostWithConfig`, env **`LIBP2P_STATIC_RELAYS`**, **`KM_P2P_PROMETHEUS_EXPORT`**, **`KM_P2P_DEBUG`**, **`KM_P2P_DEBUG_HTTP`**
+- `internal/relay` — minimal circuit relay v2 service (`relay serve`) with reservation/circuit limits and basic relay usage logging
 
 ## Layout
 
-- `cmd/` — thin `main` packages only (`knowledgeMesh`, `buyer`, `seller`, `control`, `demo`)
+- `cmd/` — thin `main` packages only (`knowledgeMesh`, `buyer`, `seller`, `control`, `relay`, `demo`)
 - `internal/` — private logic (`buyer`, `seller`, `control`, `mesh`, `matchmaker`, `network`, `api`, `sandbox`, `policy`, `state`)
 - `pkg/` — shared libraries (`types`, `protocol`, `config`)
 - `ARCHITECTURE.md` — system architecture and inference/billing flow

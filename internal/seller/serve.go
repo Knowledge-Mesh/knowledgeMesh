@@ -20,10 +20,11 @@ import (
 // Requires control pane login (--control-url, --email, --password). Model list and duty come from PostgreSQL via the control API.
 func NewServeCommand() *cobra.Command {
 	var (
-		p2pAddr    string
-		controlURL string
-		email      string
-		password   string
+		p2pAddr     string
+		relays      []string
+		controlURL  string
+		email       string
+		password    string
 	)
 
 	cmd := &cobra.Command{
@@ -42,16 +43,38 @@ func NewServeCommand() *cobra.Command {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
-			h, err := network.NewHost(ctx, p2pAddr)
+			cfg := network.DefaultHostConfig(p2pAddr)
+			cfg.MergeStaticRelays(relays)
+			h, hpMgr, err := network.NewHostWithConfigAndHolePunch(ctx, cfg)
 			if err != nil {
 				return err
 			}
 			defer h.Close()
+			defer hpMgr.Close()
+			hpMgr.Start(ctx)
+			connTracker := network.NewConnectionTypeTracker(h)
+			defer connTracker.Close()
+			connTracker.Start()
+
+			netMon := network.NewNetworkMonitor(h, hpMgr, connTracker, network.DefaultNetworkMonitorConfig())
+			netMon.Start(ctx)
 
 			cc := control.NewClient(controlURL)
 			tok, prof, err := cc.LoginSeller(email, password)
 			if err != nil {
 				return fmt.Errorf("control login: %w", err)
+			}
+			netMon.OnAutoNATRefresh = func(ev network.NetworkChangeEvent) {
+				log.Printf("network changed (ip=%v iface=%v): libp2p AutoNAT continues probing in background", ev.IPChanged, ev.InterfaceChanged)
+			}
+			netMon.OnReAdvertise = func(_ network.NetworkChangeEvent) {
+				listenAddrs := make([]string, 0, len(h.Addrs()))
+				for _, a := range h.Addrs() {
+					listenAddrs = append(listenAddrs, a.String())
+				}
+				if _, err := cc.PostSellerPresence(tok, h.ID().String(), listenAddrs); err != nil {
+					log.Printf("warning: re-advertise seller presence after network change: %v", err)
+				}
 			}
 
 			pid := h.ID().String()
@@ -88,7 +111,8 @@ func NewServeCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&p2pAddr, "p2p-addr", network.DefaultQUICListenAddr, "libp2p QUIC listen multiaddr")
+	cmd.Flags().StringVar(&p2pAddr, "p2p-addr", network.DefaultQUICListenAddr, "libp2p QUIC listen multiaddr (TCP /ip4/0.0.0.0/tcp/0 is added automatically)")
+	cmd.Flags().StringArrayVar(&relays, "relay", nil, "Circuit relay v2 multiaddr with /p2p/<relayID> (repeatable); merged with LIBP2P_STATIC_RELAYS")
 	cmd.Flags().StringVar(&controlURL, "control-url", "", "Control pane base URL (required), e.g. http://127.0.0.1:8090")
 	cmd.Flags().StringVar(&email, "email", "", "Seller email for control login (required)")
 	cmd.Flags().StringVar(&password, "password", "", "Seller password for control login (required)")

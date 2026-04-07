@@ -21,6 +21,7 @@ type Runtime struct {
 	Buyer   *buyer.Manager
 	Control *control.Client
 	Host    host.Host
+	Router  *network.MessageRouter
 }
 
 func NewRuntime(b *buyer.Manager, h host.Host) *Runtime {
@@ -124,7 +125,12 @@ func (r *Runtime) RunInference(ctx context.Context, sessionID string, req types.
 		return types.InferenceResponse{}, err
 	}
 
-	respBytes, err := network.SendRequest(ctx, r.Host, pid, network.ProtocolInference, body)
+	var respBytes []byte
+	if r.Router != nil {
+		respBytes, err = r.Router.SendRequest(ctx, pid, network.ProtocolInference, body)
+	} else {
+		respBytes, err = network.SendRequest(ctx, r.Host, pid, network.ProtocolInference, body)
+	}
 	if err != nil {
 		_ = r.Control.PostBuyerInferenceComplete(sessionID, req.RequestID, 0, false, map[string]any{"error": err.Error()})
 		return types.InferenceResponse{}, err

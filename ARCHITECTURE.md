@@ -76,6 +76,7 @@ flowchart TB
     c2[buyer]
     c3[seller]
     c4[control]
+    c5[relay]
   end
 
   subgraph internal["internal/"]
@@ -84,7 +85,8 @@ flowchart TB
     i3[api — HTTP handlers]
     i4[seller — inference sandbox engines]
     i5[buyer — session state]
-    i6[network — libp2p QUIC]
+    i6[network — libp2p QUIC/TCP + NAT + relay + dcutr]
+    i8[relay — circuit v2 service]
     i7[matchmaker — used inside control]
   end
 
@@ -96,6 +98,7 @@ flowchart TB
   c1 --> i2
   c2 --> i2
   c3 --> i4
+  c5 --> i8
   i2 --> i3
   i2 --> i6
   i2 --> i5
@@ -184,7 +187,8 @@ flowchart LR
 | Matchmaking | `internal/matchmaker` | Selects a seller from a candidate list (skill, duty, price cap; then lowest price, then reputation). Invoked **inside** the control pane for `/buyers/me/inference/match`. |
 | Buyer mesh | `internal/mesh`, `internal/api` | Session from control login; calls control for match and billing completion; runs libp2p inference streams |
 | Seller runtime | `internal/seller` | Sandbox + model engines; inference over `/knowledgemesh/inference/1.0.0`; optional control tracking callbacks |
-| Network | `internal/network` | QUIC libp2p host, bootstrap connect, request/response streams |
+| Network | `internal/network` | QUIC/TCP host config, AutoNAT v2, AutoRelay, DCUtR hole punching, connection typing, size-aware routing, network-change monitor, relay→direct upgrade |
+| Relay service | `cmd/relay`, `internal/relay` | Stateless circuit relay v2 server (reservations + relayed circuits + resource limits) |
 
 ### `cmd/` binaries (entrypoints)
 
@@ -194,6 +198,7 @@ flowchart LR
 | `buyer` | `register`, `start`, `prompt` | `cmd/buyer` → `internal/buyer`, `internal/mesh` |
 | `seller` | `register`, `serve` | `cmd/seller` → `internal/seller`, `internal/control` client |
 | `control` | `api`, `start` | `cmd/control` → `internal/control` HTTP server or libp2p control protocol |
+| `relay` | `serve` | `cmd/relay` → `internal/relay` (circuit relay v2 service) |
 | `demo` | `run` | placeholder |
 
 Registration and login for buyers and sellers in production flows go through **`control api`** (PostgreSQL), invoked via `buyer register`, `seller register`, or the HTTP routes.
@@ -221,7 +226,7 @@ JWTs distinguish **buyer** vs **seller** subjects so tokens are not interchangea
 2. **Buyer** registered (`POST /v1/control/buyers/register` or `buyer register`).
 3. **Seller** registered, models declared, **on duty**, and **presence** posted so PostgreSQL has a routable libp2p peer id.
 4. **Buyer mesh** (`mesh serve`) logged in to control; **seller** (`seller serve`) logged in to control.
-5. Buyer mesh process started with `--bootstrap` so it can reach the seller’s multiaddr (dial path).
+5. Buyer mesh process started with relay addresses (`--relay` and/or `LIBP2P_STATIC_RELAYS`) and optional `--bootstrap` so it can reach the seller via direct or relay path.
 
 ### 2. Sequence (happy path)
 
@@ -252,7 +257,7 @@ sequenceDiagram
   BAPI-->>App: completion + usage
 ```
 
-Each inference uses a **short-lived stream**: the connection is used for one request/response pair, then released.
+Each inference uses a **short-lived stream**: the connection is used for one request/response pair, then released. For larger payloads the message router prefers direct paths, can trigger hole punching, and falls back to relay within timeout.
 
 ### 3. What “matchmaking” means here
 

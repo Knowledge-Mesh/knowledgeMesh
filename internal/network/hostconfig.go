@@ -1,0 +1,221 @@
+package network
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	libp2p "github.com/libp2p/go-libp2p"
+	host "github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/p2p/muxer/yamux"
+	"github.com/libp2p/go-libp2p/p2p/protocol/holepunch"
+	"github.com/libp2p/go-libp2p/p2p/net/connmgr"
+	"github.com/libp2p/go-libp2p/p2p/security/noise"
+	quic "github.com/libp2p/go-libp2p/p2p/transport/quic"
+	"github.com/libp2p/go-libp2p/p2p/transport/quicreuse"
+	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
+)
+
+// Well-known environment variable for relay multiaddrs (comma-separated full multiaddrs with /p2p/<id>).
+const EnvLibp2pStaticRelays = "LIBP2P_STATIC_RELAYS"
+
+// Connection manager defaults (production-oriented).
+const (
+	connMgrLowWater    = 100
+	connMgrHighWater   = 400
+	connMgrGracePeriod = time.Minute
+
+	// Safe transport tuning for mobile / unstable links:
+	// - keepalive slightly tighter than yamux default (30s) to detect stale paths earlier.
+	// - stream window above libp2p yamux default (16MiB) for medium-large payloads.
+	// These values stay conservative to avoid aggressive memory/traffic behavior.
+	yamuxKeepAliveInterval = 20 * time.Second
+	yamuxMaxStreamWindow   = uint32(24 * 1024 * 1024) // 24MiB
+	dialTimeout            = 25 * time.Second
+)
+
+// HostConfig groups libp2p host options so transports, relays, and listen addrs can evolve without
+// changing call sites. Extend this struct when adding metrics, identity paths, or custom dialers.
+type HostConfig struct {
+	// ListenAddrs are libp2p listen multiaddrs. QUIC should be listed before TCP if both are used
+	// so documentation matches “QUIC primary”; dial ranking is handled internally by libp2p.
+	ListenAddrs []string
+	// StaticRelayAddrs are full multiaddr strings (including /p2p/<peerID>) for circuit relay v2
+	// servers used by AutoRelay. Critical for CGNAT/mobile when public inbound UDP/TCP is unavailable.
+	StaticRelayAddrs []string
+	// OnHolePunchService, if set, is invoked with the libp2p DCUtR service when the host is built.
+	// Use this to wire HolePunchManager or other retry logic that calls DirectConnect.
+	OnHolePunchService func(*holepunch.Service)
+	// EnableP2PPrometheusExport registers km_p2p_* metrics with the default Prometheus registerer.
+	// When nil, KM_P2P_PROMETHEUS_EXPORT controls export (default off).
+	EnableP2PPrometheusExport *bool
+}
+
+// DefaultHostConfig builds listen addresses (QUIC + TCP fallback) and loads static relays from
+// LIBP2P_STATIC_RELAYS when set.
+func DefaultHostConfig(primaryListen string) HostConfig {
+	if strings.TrimSpace(primaryListen) == "" {
+		primaryListen = DefaultQUICListenAddr
+	}
+	cfg := HostConfig{
+		ListenAddrs:      defaultListenAddrs(primaryListen),
+		StaticRelayAddrs: staticRelaysFromEnv(),
+	}
+	return cfg
+}
+
+// MergeStaticRelays appends CLI-provided relay multiaddrs to cfg (after env defaults). Empty
+// strings are skipped; parsing happens at NewHostWithConfig.
+func (cfg *HostConfig) MergeStaticRelays(extra []string) {
+	for _, s := range extra {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			cfg.StaticRelayAddrs = append(cfg.StaticRelayAddrs, s)
+		}
+	}
+}
+
+func defaultListenAddrs(primaryQUIC string) []string {
+	// QUIC first (primary transport for modern NAT-friendly IETF QUIC).
+	// TCP fallback: same host can accept inbound TCP dials when QUIC is blocked or for legacy peers.
+	return []string{primaryQUIC, "/ip4/0.0.0.0/tcp/0"}
+}
+
+func staticRelaysFromEnv() []string {
+	raw := strings.TrimSpace(os.Getenv(EnvLibp2pStaticRelays))
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	for _, p := range strings.Split(raw, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// ParseRelayAddrInfos converts full multiaddr strings into AddrInfo for AutoRelay.
+func ParseRelayAddrInfos(multiaddrs []string) ([]peer.AddrInfo, error) {
+	var out []peer.AddrInfo
+	for _, s := range multiaddrs {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		ai, err := peer.AddrInfoFromString(s)
+		if err != nil {
+			return nil, fmt.Errorf("static relay %q: %w", s, err)
+		}
+		out = append(out, *ai)
+	}
+	return out, nil
+}
+
+// NewHostWithConfig constructs a libp2p host with NAT traversal, relay, hole punching, and resource
+// limits suitable for production on CGNAT/mobile networks.
+func NewHostWithConfig(ctx context.Context, cfg HostConfig) (host.Host, error) {
+	ApplyP2PMetricsExportForHost(cfg)
+
+	if len(cfg.ListenAddrs) == 0 {
+		cfg.ListenAddrs = defaultListenAddrs(DefaultQUICListenAddr)
+	}
+
+	opts, err := libp2pOptions(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return libp2p.New(opts...)
+}
+
+// NewHostWithConfigAndHolePunch builds a host and a HolePunchManager wired to the libp2p DCUtR service.
+// Call HolePunchManager.Start with the same context you use for graceful shutdown, then defer HolePunchManager.Close.
+func NewHostWithConfigAndHolePunch(ctx context.Context, cfg HostConfig) (host.Host, *HolePunchManager, error) {
+	var hp *holepunch.Service
+	cfg.OnHolePunchService = func(s *holepunch.Service) { hp = s }
+	h, err := NewHostWithConfig(ctx, cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	m := NewHolePunchManager(h, hp, DefaultHolePunchManagerConfig())
+	return h, m, nil
+}
+
+// holepunchExtra appends user hooks (e.g. capturing *holepunch.Service) to the DCUtR service options.
+func holepunchExtra(cfg HostConfig) []holepunch.Option {
+	if cfg.OnHolePunchService == nil {
+		return nil
+	}
+	return []holepunch.Option{func(s *holepunch.Service) error {
+		cfg.OnHolePunchService(s)
+		return nil
+	}}
+}
+
+func libp2pOptions(cfg HostConfig) ([]libp2p.Option, error) {
+	mgr, err := connmgr.NewConnManager(connMgrLowWater, connMgrHighWater, connmgr.WithGracePeriod(connMgrGracePeriod))
+	if err != nil {
+		return nil, fmt.Errorf("connmgr: %w", err)
+	}
+
+	relayInfos, err := ParseRelayAddrInfos(cfg.StaticRelayAddrs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Order: transports (QUIC then TCP) → security → muxer → NAT → relay/autorelay → hole punch → connmgr → ping.
+	opts := []libp2p.Option{
+		libp2p.ListenAddrStrings(cfg.ListenAddrs...),
+		libp2p.WithDialTimeout(dialTimeout),
+
+		// Explicit QUIC reuse keeps UDP socket management stable across many peer dials and
+		// path changes; this helps connection continuity on mobile networks with IP churn.
+		// We use libp2p's default constructor to preserve compatibility.
+		libp2p.QUICReuse(quicreuse.NewConnManager),
+
+		// Transports: QUIC preferred for performance and NAT; TCP fallback when QUIC is blocked.
+		libp2p.Transport(quic.NewTransport),
+		libp2p.Transport(tcp.NewTCPTransport),
+
+		// Noise: encrypted channels between peers (required for production libp2p security model).
+		libp2p.Security(noise.ID, noise.New),
+
+		// Tuned yamux settings complement QUIC by improving stream behavior for bigger payloads
+		// while retaining default-safe behavior for small interactive messages.
+		libp2p.Muxer(yamux.ID, tunedYamuxTransport()),
+
+		// NATPortMap: UPnP/NAT-PMP port mapping on compatible routers so inbound QUIC/TCP can work.
+		libp2p.NATPortMap(),
+
+		// NATService: this node helps remote peers learn reachability via dial-back (good network citizen).
+		libp2p.EnableNATService(),
+
+		// AutoNAT v2: this node discovers whether it is publicly reachable (drives relay + addressing).
+		libp2p.EnableAutoNATv2(),
+
+		// Relay v2 client: can dial peers via circuit when direct paths fail (required for hole punching setup).
+		libp2p.EnableRelay(),
+
+		// AutoRelay: advertises relay addresses when behind NAT; static relays avoid discovery dependency.
+		libp2p.EnableAutoRelayWithStaticRelays(relayInfos),
+
+		// DCUtR hole punching: coordinates direct connection upgrade over relay (see /libp2p/dcutr).
+		libp2p.EnableHolePunching(holepunchExtra(cfg)...),
+
+		libp2p.ConnectionManager(mgr),
+		libp2p.Ping(true),
+	}
+
+	return opts, nil
+}
+
+func tunedYamuxTransport() *yamux.Transport {
+	base := *yamux.DefaultTransport.Config()
+	base.KeepAliveInterval = yamuxKeepAliveInterval
+	base.MaxStreamWindowSize = yamuxMaxStreamWindow
+	return (*yamux.Transport)(&base)
+}

@@ -19,6 +19,7 @@ func NewMeshServeCommand() *cobra.Command {
 		apiAddr    string
 		p2pAddr    string
 		bootstrap  []string
+		relays     []string
 		controlURL string
 		email      string
 		password   string
@@ -41,11 +42,21 @@ Example:
 Use the printed session token as Authorization: Bearer or X-Session-ID for /v1/chat/completions.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
-			h, err := network.NewHost(ctx, p2pAddr)
+			cfg := network.DefaultHostConfig(p2pAddr)
+			cfg.MergeStaticRelays(relays)
+			h, hpMgr, err := network.NewHostWithConfigAndHolePunch(ctx, cfg)
 			if err != nil {
 				return err
 			}
 			defer h.Close()
+			defer hpMgr.Close()
+			hpMgr.Start(ctx)
+			connTracker := network.NewConnectionTypeTracker(h)
+			defer connTracker.Close()
+			connTracker.Start()
+
+			netMon := network.NewNetworkMonitor(h, hpMgr, connTracker, network.DefaultNetworkMonitorConfig())
+			netMon.Start(ctx)
 
 			for _, boot := range bootstrap {
 				if err := network.ConnectBootstrapPeers(ctx, h, []string{boot}); err != nil {
@@ -59,6 +70,7 @@ Use the printed session token as Authorization: Bearer or X-Session-ID for /v1/c
 
 			bm := buyer.NewManager()
 			rt := NewRuntime(bm, h)
+			rt.Router = network.NewMessageRouter(h, connTracker, hpMgr, network.DefaultMessageRouterConfig())
 			rt.Control = control.NewClient(controlURL)
 			st, err := rt.Login(email, password)
 			if err != nil {
@@ -79,6 +91,7 @@ Use the printed session token as Authorization: Bearer or X-Session-ID for /v1/c
 	cmd.Flags().StringVar(&apiAddr, "api-addr", ":8080", "HTTP API listen address")
 	cmd.Flags().StringVar(&p2pAddr, "p2p-addr", network.DefaultQUICListenAddr, "libp2p QUIC listen multiaddr")
 	cmd.Flags().StringArrayVar(&bootstrap, "bootstrap", nil, "Bootstrap peer multiaddr (repeatable), e.g. /ip4/127.0.0.1/udp/4001/quic-v1/p2p/<PeerID>")
+	cmd.Flags().StringArrayVar(&relays, "relay", nil, "Circuit relay v2 multiaddr with /p2p/<relayID> (repeatable); merged with LIBP2P_STATIC_RELAYS for AutoRelay")
 	cmd.Flags().StringVar(&controlURL, "control-url", "", "Control pane base URL (required), e.g. http://127.0.0.1:8090")
 	cmd.Flags().StringVar(&email, "email", "", "Buyer email for control pane login (required)")
 	cmd.Flags().StringVar(&password, "password", "", "Buyer password for control pane login (required)")
