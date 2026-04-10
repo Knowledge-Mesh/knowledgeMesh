@@ -13,6 +13,8 @@ import (
 	"github.com/knowledgemeshgrid/knowledgemesh/internal/control"
 	"github.com/knowledgemeshgrid/knowledgemesh/internal/network"
 	"github.com/knowledgemeshgrid/knowledgemesh/internal/sandbox"
+	host "github.com/libp2p/go-libp2p/core/host"
+	ma "github.com/multiformats/go-multiaddr"
 	"github.com/spf13/cobra"
 )
 
@@ -92,6 +94,7 @@ func NewServeCommand() *cobra.Command {
 			}
 
 			pid := h.ID().String()
+			waitForRelayAddrs(ctx, h, 15*time.Second)
 			listenAddrs := make([]string, 0, len(h.Addrs()))
 			for _, a := range h.Addrs() {
 				listenAddrs = append(listenAddrs, a.String())
@@ -133,4 +136,29 @@ func NewServeCommand() *cobra.Command {
 	cmd.Flags().StringVar(&email, "email", "", "Seller email for control login (required)")
 	cmd.Flags().StringVar(&password, "password", "", "Seller password for control login (required)")
 	return cmd
+}
+
+// waitForRelayAddrs polls h.Addrs() until at least one /p2p-circuit address
+// appears, or the timeout elapses. This ensures the seller posts reachable relay
+// addresses to the control plane instead of only local/LAN addresses.
+func waitForRelayAddrs(ctx context.Context, h host.Host, timeout time.Duration) {
+	deadline := time.After(timeout)
+	tick := time.NewTicker(500 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		for _, a := range h.Addrs() {
+			if _, err := a.ValueForProtocol(ma.P_CIRCUIT); err == nil {
+				log.Printf("[seller] relay address ready: %s", a)
+				return
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-deadline:
+			log.Printf("warning: no relay addresses after %s, posting local-only presence", timeout)
+			return
+		case <-tick.C:
+		}
+	}
 }

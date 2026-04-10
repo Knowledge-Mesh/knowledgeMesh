@@ -95,6 +95,13 @@ func SendRequest(ctx context.Context, h host.Host, target peer.ID, pid protocol.
 	return resp, err
 }
 
+// CloseConnectionsToPeer closes all connections to a peer so a subsequent Connect redials fresh.
+func CloseConnectionsToPeer(h host.Host, id peer.ID) {
+	for _, c := range h.Network().ConnsToPeer(id) {
+		_ = c.Close()
+	}
+}
+
 func sendRequestWithRoute(ctx context.Context, h host.Host, target peer.ID, pid protocol.ID, request []byte) ([]byte, string, error) {
 	s, err := h.NewStream(ctx, target, pid)
 	if err != nil {

@@ -273,10 +273,9 @@ func libp2pOptions(ctx context.Context, cfg HostConfig, kadPtr **dht.IpfsDHT) ([
 		// NATPortMap: UPnP/NAT-PMP port mapping on compatible routers so inbound QUIC/TCP can work.
 		libp2p.NATPortMap(),
 
-		// NATService: this node helps remote peers learn reachability via dial-back (good network citizen).
-		libp2p.EnableNATService(),
-
 		// AutoNAT v2: this node discovers whether it is publicly reachable (drives relay + addressing).
+		// Note: EnableNATService (dial-back helper) is intentionally omitted here because these peers
+		// use ForceReachabilityPrivate and cannot perform dial-back probes for other nodes.
 		libp2p.EnableAutoNATv2(),
 
 		// Relay v2 client: can dial peers via circuit when direct paths fail (required for hole punching setup).
@@ -285,8 +284,8 @@ func libp2pOptions(ctx context.Context, cfg HostConfig, kadPtr **dht.IpfsDHT) ([
 		// AutoRelay: advertises relay addresses when behind NAT; static relays avoid discovery dependency.
 		libp2p.EnableAutoRelayWithStaticRelays(relayInfos, autorelay.WithBootDelay(0),
 			autorelay.WithMinCandidates(1),
-			autorelay.WithNumRelays(1),
-			autorelay.WithMaxCandidates(1),
+			autorelay.WithNumRelays(2),
+			autorelay.WithMaxCandidates(3),
 			autorelay.WithBackoff(5*time.Second)),
 
 		// DCUtR hole punching: coordinates direct connection upgrade over relay (see /libp2p/dcutr).

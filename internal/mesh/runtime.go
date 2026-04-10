@@ -132,6 +132,18 @@ func (r *Runtime) RunInference(ctx context.Context, sessionID string, req types.
 		respBytes, err = network.SendRequest(ctx, r.Host, pid, network.ProtocolInference, body)
 	}
 	if err != nil {
+		// Stale relay circuits can appear Connected but fail on NewStream.
+		// Close the dead connections, redial, and retry once.
+		network.CloseConnectionsToPeer(r.Host, pid)
+		if reconnErr := network.ConnectToPeer(ctx, r.Host, pid, match.SellerListenAddrs); reconnErr == nil {
+			if r.Router != nil {
+				respBytes, err = r.Router.SendRequest(ctx, pid, network.ProtocolInference, body)
+			} else {
+				respBytes, err = network.SendRequest(ctx, r.Host, pid, network.ProtocolInference, body)
+			}
+		}
+	}
+	if err != nil {
 		_ = r.Control.PostBuyerInferenceComplete(sessionID, req.RequestID, 0, false, map[string]any{"error": err.Error()})
 		return types.InferenceResponse{}, err
 	}
