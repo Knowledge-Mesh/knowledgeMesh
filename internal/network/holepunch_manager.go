@@ -2,7 +2,6 @@ package network
 
 import (
 	"context"
-	"log"
 	"math/rand/v2"
 	"sync"
 	"sync/atomic"
@@ -109,17 +108,48 @@ type HolePunchManager struct {
 	closed   bool
 
 	upgradeMu sync.Mutex // per upgrade scheduling (avoid duplicate relay closes / punches)
+
+	lastMu sync.RWMutex
+	lastHP map[peer.ID]HolePunchResultInfo
 }
 
 // NewHolePunchManager creates a manager. If hp is nil (hole punching disabled), Start is a no-op.
 func NewHolePunchManager(h host.Host, hp *holepunch.Service, cfg HolePunchManagerConfig) *HolePunchManager {
 	cfg = normalizeHolePunchConfig(cfg)
 	return &HolePunchManager{
-		h:     h,
-		hp:    hp,
-		cfg:   cfg,
-		peers: make(map[peer.ID]*peerWorker),
+		h:      h,
+		hp:     hp,
+		cfg:    cfg,
+		peers:  make(map[peer.ID]*peerWorker),
+		lastHP: make(map[peer.ID]HolePunchResultInfo),
 	}
+}
+
+func (m *HolePunchManager) recordHolePunchResult(id peer.ID, success bool, err error, source string) {
+	if m == nil {
+		return
+	}
+	info := HolePunchResultInfo{
+		Time:    time.Now(),
+		Success: success,
+		Source:  source,
+	}
+	if err != nil {
+		info.Error = err.Error()
+	}
+	m.lastMu.Lock()
+	m.lastHP[id] = info
+	m.lastMu.Unlock()
+}
+
+func (m *HolePunchManager) LastHolePunchResult(id peer.ID) (HolePunchResultInfo, bool) {
+	if m == nil {
+		return HolePunchResultInfo{}, false
+	}
+	m.lastMu.RLock()
+	defer m.lastMu.RUnlock()
+	v, ok := m.lastHP[id]
+	return v, ok
 }
 
 type peerWorker struct {
@@ -140,14 +170,16 @@ func (m *HolePunchManager) TriggerDirectConnect(id peer.ID) {
 	go func() {
 		m.metrics.Attempts.Add(1)
 		GetP2PObserver().ObserveHolePunchAttempt()
-		log.Printf("[holepunch] trigger peer=%s reason=message_router", id)
+		P2PDebugLog("holepunch trigger peer=%s reason=message_router", id)
 		if err := m.hp.DirectConnect(id); err != nil {
-			log.Printf("[holepunch] trigger failed peer=%s: %v", id, err)
+			m.recordHolePunchResult(id, false, err, "message_router")
+			P2PDebugLog("holepunch trigger failed peer=%s err=%v", id, err)
 			return
 		}
 		m.metrics.Successes.Add(1)
 		GetP2PObserver().ObserveHolePunchSuccess()
-		log.Printf("[holepunch] trigger success peer=%s", id)
+		m.recordHolePunchResult(id, true, nil, "message_router")
+		P2PDebugLog("holepunch trigger success peer=%s", id)
 		m.scheduleRelayCloseAfterDirect(id, "message_router_trigger")
 	}()
 }
@@ -169,7 +201,7 @@ func (m *HolePunchManager) Start(ctx context.Context) {
 
 	sub, err := m.h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
 	if err != nil {
-		log.Printf("[holepunch] subscribe EvtLocalAddressesUpdated: %v", err)
+		P2PDebugLog("holepunch subscribe EvtLocalAddressesUpdated err=%v", err)
 	} else {
 		m.addrSub = sub
 		go m.loopAddrEvents(ctx, sub)
@@ -252,7 +284,7 @@ func (m *HolePunchManager) runPeer(ctx context.Context, id peer.ID, reason strin
 		m.mu.Unlock()
 	}()
 
-	log.Printf("[holepunch] start worker peer=%s trigger=%s", id, reason)
+	P2PDebugLog("holepunch worker start peer=%s trigger=%s", id, reason)
 
 	var lastAttempt time.Time
 	timer := time.NewTimer(0)
@@ -264,18 +296,18 @@ func (m *HolePunchManager) runPeer(ctx context.Context, id peer.ID, reason strin
 			return
 		case <-timer.C:
 			if !hasConnection(m.h, id) {
-				log.Printf("[holepunch] peer=%s disconnected; stop retries", id)
+				P2PDebugLog("holepunch peer=%s disconnected stop_retries=true", id)
 				return
 			}
 			if hasDirectConnection(m.h, id) {
 				if hasRelayConnection(m.h, id) {
 					m.scheduleRelayCloseAfterDirect(id, "worker_direct_ready")
 				}
-				log.Printf("[holepunch] peer=%s already has direct path; stop retries", id)
+				P2PDebugLog("holepunch peer=%s already_direct stop_retries=true", id)
 				return
 			}
 			if !relayOnlyToPeer(m.h, id) {
-				log.Printf("[holepunch] peer=%s no longer relay-only; stop retries", id)
+				P2PDebugLog("holepunch peer=%s not_relay_only stop_retries=true", id)
 				return
 			}
 
@@ -288,28 +320,31 @@ func (m *HolePunchManager) runPeer(ctx context.Context, id peer.ID, reason strin
 			lastAttempt = now
 			m.metrics.Attempts.Add(1)
 			GetP2PObserver().ObserveHolePunchAttempt()
-			log.Printf("[holepunch] attempt peer=%s (relay-only path)", id)
+			P2PDebugLog("holepunch attempt peer=%s relay_only=true", id)
 
 			err := m.hp.DirectConnect(id)
 			if err == nil {
 				m.metrics.Successes.Add(1)
 				GetP2PObserver().ObserveHolePunchSuccess()
-				log.Printf("[holepunch] success peer=%s direct connection established", id)
+				m.recordHolePunchResult(id, true, nil, "worker")
+				P2PDebugLog("holepunch success peer=%s direct_established=true", id)
 				m.scheduleRelayCloseAfterDirect(id, "dcutr_ok")
 				return
 			}
 			if hasDirectConnection(m.h, id) {
 				m.metrics.Successes.Add(1)
 				GetP2PObserver().ObserveHolePunchSuccess()
-				log.Printf("[holepunch] success peer=%s direct connection detected after attempt", id)
+				m.recordHolePunchResult(id, true, nil, "worker_detected")
+				P2PDebugLog("holepunch success peer=%s direct_detected_after_attempt=true", id)
 				m.scheduleRelayCloseAfterDirect(id, "dcutr_detected")
 				return
 			}
+			m.recordHolePunchResult(id, false, err, "worker")
 
 			if err == holepunch.ErrHolePunchActive {
-				log.Printf("[holepunch] peer=%s punch already active; will retry with backoff: %v", id, err)
+				P2PDebugLog("holepunch peer=%s already_active retry=true err=%v", id, err)
 			} else {
-				log.Printf("[holepunch] upgrade failure peer=%s: %v", id, err)
+				P2PDebugLog("holepunch failure peer=%s err=%v", id, err)
 			}
 
 			d := jitterDuration(m.cfg.RetryIntervalMin, m.cfg.RetryIntervalMax)

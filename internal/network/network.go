@@ -2,11 +2,11 @@ package network
 
 import (
 	"context"
-	"log"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"sync"
 
@@ -36,7 +36,36 @@ type RequestHandler func(context.Context, []byte) ([]byte, error)
 // NewHost builds a production-oriented libp2p host (QUIC+TCP, Noise, Yamux, NAT, relay, hole punch).
 // Static relays: set LIBP2P_STATIC_RELAYS and/or use NewHostWithConfig with HostConfig.MergeStaticRelays.
 func NewHost(ctx context.Context, listenAddr string) (host.Host, error) {
-	return NewHostWithConfig(ctx, DefaultHostConfig(listenAddr))
+	h, _, err := NewHostWithConfig(ctx, DefaultHostConfig(listenAddr))
+	return h, err
+}
+
+// TryConnectBootstrapPeers dials each bootstrap multiaddr (best-effort); logs failures without aborting.
+// Used when DHT is enabled so AutoNAT has peers for dial-back probes.
+func TryConnectBootstrapPeers(ctx context.Context, h host.Host, peers []string) {
+	for _, addr := range peers {
+		addr = strings.TrimSpace(addr)
+		if addr == "" {
+			continue
+		}
+		info, err := peer.AddrInfoFromString(addr)
+		//err = autonat.NewAutoNATClient(h, nil, nil).DialBack(ctx, info.ID)
+		//if err != nil {
+		//	log.Printf("[p2p] bootstrap addr dial error %s: %v", addr, err)
+		//}
+		if err != nil {
+			log.Printf("[p2p] bootstrap addr invalid %q: %v", addr, err)
+			continue
+		}
+		cctx, cancel := context.WithTimeout(ctx, dialTimeout)
+		err = h.Connect(cctx, *info)
+		cancel()
+		if err != nil {
+			log.Printf("[p2p] bootstrap connect peer=%s: %v", info.ID, err)
+			continue
+		}
+		log.Printf("[p2p] bootstrap connected peer=%s", info.ID)
+	}
 }
 
 func RegisterRequestHandler(h host.Host, pid protocol.ID, handler RequestHandler) {

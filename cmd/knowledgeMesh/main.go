@@ -19,6 +19,7 @@ func main() {
 		Short: "Buyer HTTP API with libp2p, matchmaking, and remote inference",
 	}
 	meshCmd.AddCommand(mesh.NewMeshServeCommand())
+	meshCmd.AddCommand(mesh.NewP2PDebugPeerCommand())
 
 	root.AddCommand(sandbox.NewServeCommand(), meshCmd)
 

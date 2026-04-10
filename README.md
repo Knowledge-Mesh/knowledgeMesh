@@ -24,6 +24,8 @@ go build ./...
 go test ./...
 ```
 
+Integration tests for libp2p networking (connection typing, hole punching, message routing, **P2P debug** env parsing, `BuildPeerDebugReport`, and the debug HTTP mux) live under [`tests/network/`](./tests/network/).
+
 That produces one binary per `cmd/*` package (for example `bin/knowledgeMesh`, `bin/buyer`, `bin/seller`, `bin/control`, `bin/relay`, `bin/demo`). On Windows, use `bin\knowledgeMesh.exe`, etc.
 
 Examples below use `go run ./cmd/...`; after building, run the same flags on `./bin/<name>`.
@@ -187,6 +189,8 @@ Environment toggles for debug:
 - `KM_P2P_DEBUG` — set `1` / `true` / `yes` / `on` to enable verbose P2P debug logging.
 - `KM_P2P_DEBUG_HTTP` — optional debug HTTP listen addr (for example `127.0.0.1:9091`).
 
+When constructing a host with `NewHostWithConfig`, you can set `HostConfig.EnableP2PDebug` to a non-nil pointer to force debug on or off; it overrides the environment for that process (same as `--p2p-debug` / `--p2p-debug-http` on `mesh serve`, which set this field).
+
 Debug endpoints (when enabled):
 
 - `GET /debug/p2p/peer/<peerID>` — peer connection details, computed connection type, tagged type, last hole punch result.
@@ -285,6 +289,8 @@ go run ./cmd/seller serve \
   --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
 ```
 
+**Optional DHT + bootstrap (NAT / AutoNAT):** if the seller only listens and has no other libp2p peers, AutoNAT v2 may not emit reachability updates quickly. Enable Kademlia DHT and pass at least one reachable bootstrap peer (often your **relay** multiaddr, or any well-connected node): `--p2p-dht` and repeatable `--p2p-bootstrap '/ip4/.../udp/.../quic-v1/p2p/<PEER_ID>'`. Environment equivalents: `KM_P2P_DHT=1`, `LIBP2P_BOOTSTRAP_PEERS` (comma-separated, same format as `--relay` / `LIBP2P_STATIC_RELAYS`). After relay addresses appear in `host.Addrs()`, repost seller presence if buyers still cannot dial.
+
 After **`POST /v1/control/sellers/login`**, configure Ollama (example: map catalog model name `my-chat` to local tag `llama3:latest`):
 
 ```bash
@@ -330,7 +336,7 @@ Helpers in `internal/network`: `RegisterRequestHandler`, `SendRequest`, `Connect
 - `internal/api` — OpenAI/Anthropic HTTP handlers
 - `internal/mesh` — control client for match/tracking/complete, libp2p inference to matched seller
 - `internal/control` — PostgreSQL (buyers, sellers, models, billing, inference matches), HTTP API (`control api`), golang-migrate SQL in `migrations/`, JWT, outbound client, libp2p handler (`control start`)
-- `internal/network` — libp2p host (**QUIC + TCP**, Noise, Yamux, NAT, **AutoNAT v2**, relay + **AutoRelay**, **DCUtR** hole punching, connmgr, ping), plus `HolePunchManager` retries, `ConnectionTypeTracker`, size-aware `MessageRouter`, `NetworkMonitor`, relay→direct upgrade pruning, optional **`km_p2p_*` Prometheus metrics**, and optional P2P connectivity debug utilities (NAT reachability logging, connection path logs, hole punch result snapshots, debug HTTP API); see `HostConfig` / `NewHostWithConfig`, env **`LIBP2P_STATIC_RELAYS`**, **`KM_P2P_PROMETHEUS_EXPORT`**, **`KM_P2P_DEBUG`**, **`KM_P2P_DEBUG_HTTP`**
+- `internal/network` — libp2p host (**QUIC + TCP**, Noise, Yamux, NAT, **AutoNAT v2**, relay + **AutoRelay**, optional **Kademlia DHT** (`EnableP2PDHT`, `LIBP2P_BOOTSTRAP_PEERS` / `KM_P2P_DHT`), **DCUtR** hole punching, connmgr, ping), plus `HolePunchManager` retries, `ConnectionTypeTracker`, size-aware `MessageRouter`, `NetworkMonitor`, relay→direct upgrade pruning, optional **`km_p2p_*` Prometheus metrics**, and optional P2P connectivity debug utilities (NAT reachability logging, connection path logs, hole punch result snapshots, debug HTTP API); see `HostConfig` / `NewHostWithConfig`, env **`LIBP2P_STATIC_RELAYS`**, **`KM_P2P_PROMETHEUS_EXPORT`**, **`KM_P2P_DEBUG`**, **`KM_P2P_DEBUG_HTTP`**
 - `internal/relay` — minimal circuit relay v2 service (`relay serve`) with reservation/circuit limits and basic relay usage logging
 
 ## Layout
@@ -339,7 +345,7 @@ Helpers in `internal/network`: `RegisterRequestHandler`, `SendRequest`, `Connect
 - `internal/` — private logic (`buyer`, `seller`, `control`, `mesh`, `matchmaker`, `network`, `api`, `sandbox`, `policy`, `state`)
 - `pkg/` — shared libraries (`types`, `protocol`, `config`)
 - `ARCHITECTURE.md` — system architecture and inference/billing flow
-- `configs/`, `examples/`, `tests/` — configs, demos, tests
+- `configs/`, `examples/`, `tests/` — configs, demos, tests (`tests/network` exercises libp2p helpers including P2P connectivity debug)
 
 ## Other CLIs
 

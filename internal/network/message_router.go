@@ -7,13 +7,13 @@ import (
 	"time"
 
 	host "github.com/libp2p/go-libp2p/core/host"
+	coreNetwork "github.com/libp2p/go-libp2p/core/network"
 	peer "github.com/libp2p/go-libp2p/core/peer"
 	protocol "github.com/libp2p/go-libp2p/core/protocol"
-	coreNetwork "github.com/libp2p/go-libp2p/core/network"
 )
 
 const (
-	defaultMessageThresholdBytes = 32 * 1024
+	defaultMessageThresholdBytes = 3200 * 1024
 	defaultDirectWaitTimeout     = 3 * time.Second
 )
 
@@ -66,11 +66,11 @@ func (m *MessageRouterMetrics) RelayPercent() float64 {
 // MessageRouter routes sends by payload size: small payloads use any available
 // path, large payloads prefer direct and can trigger hole punching before relay fallback.
 type MessageRouter struct {
-	h        host.Host
-	tracker  *ConnectionTypeTracker
+	h         host.Host
+	tracker   *ConnectionTypeTracker
 	holepunch *HolePunchManager
-	cfg      MessageRouterConfig
-	metrics  MessageRouterMetrics
+	cfg       MessageRouterConfig
+	metrics   MessageRouterMetrics
 }
 
 func NewMessageRouter(h host.Host, tracker *ConnectionTypeTracker, hp *HolePunchManager, cfg MessageRouterConfig) *MessageRouter {
@@ -153,4 +153,3 @@ func (r *MessageRouter) recordRoute(msgSize int, route string) {
 	log.Printf("[router] message_size=%d route=%s direct_pct=%.2f relay_pct=%.2f",
 		msgSize, route, r.metrics.DirectPercent(), r.metrics.RelayPercent())
 }
-

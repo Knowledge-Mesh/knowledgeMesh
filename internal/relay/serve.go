@@ -11,12 +11,12 @@ import (
 	"syscall"
 	"time"
 
+	kmnet "github.com/knowledgemeshgrid/knowledgemesh/internal/network"
 	libp2p "github.com/libp2p/go-libp2p"
 	lpnet "github.com/libp2p/go-libp2p/core/network"
-	kmnet "github.com/knowledgemeshgrid/knowledgemesh/internal/network"
-	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
 	"github.com/libp2p/go-libp2p/p2p/muxer/yamux"
 	"github.com/libp2p/go-libp2p/p2p/net/connmgr"
+	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	quic "github.com/libp2p/go-libp2p/p2p/transport/quic"
 	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
@@ -26,11 +26,11 @@ import (
 
 const (
 	defaultListenAddr            = "/ip4/0.0.0.0/udp/4001/quic-v1"
-	defaultConnLowWater         = 200
-	defaultConnHighWater        = 800
-	defaultConnGraceSeconds     = 60
+	defaultConnLowWater          = 200
+	defaultConnHighWater         = 800
+	defaultConnGraceSeconds      = 60
 	defaultMaxReservations       = 512
-	defaultMaxCircuitsPerPeer   = 4
+	defaultMaxCircuitsPerPeer    = 4
 	defaultMaxBandwidthPerPeer   = 4 << 20 // 4 MiB per relay circuit window
 	defaultRelayCircuitDurationS = 120
 )
@@ -107,6 +107,7 @@ func run(cfg Config) error {
 		libp2p.EnableRelayService(relayv2.WithResources(res), relayv2.WithMetricsTracer(&loggingRelayTracer{})),
 		libp2p.ConnectionManager(cm),
 		libp2p.Ping(true),
+		libp2p.ForceReachabilityPublic(),
 	}
 	h, err := libp2p.New(opts...)
 	if err != nil {
@@ -179,4 +180,3 @@ func (n *connLogNotifee) Disconnected(_ lpnet.Network, c lpnet.Conn) {
 }
 func (n *connLogNotifee) Listen(lpnet.Network, ma.Multiaddr)      {}
 func (n *connLogNotifee) ListenClose(lpnet.Network, ma.Multiaddr) {}
-

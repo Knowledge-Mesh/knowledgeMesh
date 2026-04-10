@@ -24,16 +24,23 @@ func NewServeCommand() *cobra.Command {
 			ctx := context.Background()
 			cfg := network.DefaultHostConfig(p2pAddr)
 			cfg.MergeStaticRelays(relays)
-			h, hpMgr, err := network.NewHostWithConfigAndHolePunch(ctx, cfg)
+			h, hpMgr, kad, err := network.NewHostWithConfigAndHolePunch(ctx, cfg)
 			if err != nil {
 				return err
 			}
 			defer h.Close()
 			defer hpMgr.Close()
+			defer func() {
+				if kad != nil {
+					_ = kad.Close()
+				}
+			}()
 			hpMgr.Start(ctx)
 			connTracker := network.NewConnectionTypeTracker(h)
 			defer connTracker.Close()
 			connTracker.Start()
+			network.StartP2PDebugMonitors(ctx, h)
+			network.StartP2PDebugHTTPServerIfConfigured(ctx, "", h, connTracker, hpMgr)
 
 			netMon := network.NewNetworkMonitor(h, hpMgr, connTracker, network.DefaultNetworkMonitorConfig())
 			netMon.Start(ctx)

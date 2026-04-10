@@ -22,6 +22,8 @@ func NewServeCommand() *cobra.Command {
 	var (
 		p2pAddr     string
 		relays      []string
+		bootstrap   []string
+		p2pDHT      bool
 		controlURL  string
 		email       string
 		password    string
@@ -45,19 +47,31 @@ func NewServeCommand() *cobra.Command {
 
 			cfg := network.DefaultHostConfig(p2pAddr)
 			cfg.MergeStaticRelays(relays)
-			h, hpMgr, err := network.NewHostWithConfigAndHolePunch(ctx, cfg)
+			cfg.MergeP2PBootstrapPeers(bootstrap)
+			if p2pDHT {
+				cfg.EnableP2PDHT = true
+			}
+			h, hpMgr, kad, err := network.NewHostWithConfigAndHolePunch(ctx, cfg)
 			if err != nil {
 				return err
 			}
 			defer h.Close()
 			defer hpMgr.Close()
+			defer func() {
+				if kad != nil {
+					_ = kad.Close()
+				}
+			}()
 			hpMgr.Start(ctx)
 			connTracker := network.NewConnectionTypeTracker(h)
 			defer connTracker.Close()
 			connTracker.Start()
+			network.StartP2PDebugMonitors(ctx, h)
+			network.StartP2PDebugHTTPServerIfConfigured(ctx, "", h, connTracker, hpMgr)
 
 			netMon := network.NewNetworkMonitor(h, hpMgr, connTracker, network.DefaultNetworkMonitorConfig())
 			netMon.Start(ctx)
+			network.StartSellerReachabilityLogger(ctx, h)
 
 			cc := control.NewClient(controlURL)
 			tok, prof, err := cc.LoginSeller(email, password)
@@ -113,6 +127,8 @@ func NewServeCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&p2pAddr, "p2p-addr", network.DefaultQUICListenAddr, "libp2p QUIC listen multiaddr (TCP /ip4/0.0.0.0/tcp/0 is added automatically)")
 	cmd.Flags().StringArrayVar(&relays, "relay", nil, "Circuit relay v2 multiaddr with /p2p/<relayID> (repeatable); merged with LIBP2P_STATIC_RELAYS")
+	cmd.Flags().StringArrayVar(&bootstrap, "p2p-bootstrap", nil, "Bootstrap peer multiaddr with /p2p/<peerID> (repeatable); merged with LIBP2P_BOOTSTRAP_PEERS; use with --p2p-dht for AutoNAT reachability")
+	cmd.Flags().BoolVar(&p2pDHT, "p2p-dht", false, "Enable Kademlia DHT (ModeAuto) for peer discovery and AutoNAT v2 probes; also set KM_P2P_DHT=1 or bootstrap peers via env")
 	cmd.Flags().StringVar(&controlURL, "control-url", "", "Control pane base URL (required), e.g. http://127.0.0.1:8090")
 	cmd.Flags().StringVar(&email, "email", "", "Seller email for control login (required)")
 	cmd.Flags().StringVar(&password, "password", "", "Seller password for control login (required)")

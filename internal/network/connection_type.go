@@ -2,7 +2,6 @@ package network
 
 import (
 	"context"
-	"log"
 	"sync"
 
 	host "github.com/libp2p/go-libp2p/core/host"
@@ -154,14 +153,14 @@ func (n *connectionTypeNotifee) Connected(_ coreNetwork.Network, conn coreNetwor
 	peerID := conn.RemotePeer()
 	n.tracker.updateTag(peerID)
 	if n.tracker.IsDirectConnection(peerID) {
-		log.Printf("[p2p] connected peer=%s type=direct remote=%s", peerID, conn.RemoteMultiaddr())
+		P2PDebugLog("connected peer=%s type=direct remote=%s", peerID, conn.RemoteMultiaddr())
 		return
 	}
 	if n.tracker.IsRelayConnection(peerID) {
-		log.Printf("[p2p] connected peer=%s type=relay remote=%s", peerID, conn.RemoteMultiaddr())
+		P2PDebugLog("connected peer=%s type=relay remote=%s", peerID, conn.RemoteMultiaddr())
 		return
 	}
-	log.Printf("[p2p] connected peer=%s type=unknown remote=%s", peerID, conn.RemoteMultiaddr())
+	P2PDebugLog("connected peer=%s type=unknown remote=%s", peerID, conn.RemoteMultiaddr())
 }
 
 func (n *connectionTypeNotifee) Disconnected(_ coreNetwork.Network, conn coreNetwork.Conn) {

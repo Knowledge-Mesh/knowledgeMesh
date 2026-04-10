@@ -44,7 +44,7 @@ func TestNewHostWithConfigAndHolePunchReturnsManager(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	h, mgr, err := network.NewHostWithConfigAndHolePunch(ctx, network.DefaultHostConfig(network.DefaultQUICListenAddr))
+	h, mgr, _, err := network.NewHostWithConfigAndHolePunch(ctx, network.DefaultHostConfig(network.DefaultQUICListenAddr))
 	if err != nil {
 		t.Fatalf("new host with hole punch manager: %v", err)
 	}
