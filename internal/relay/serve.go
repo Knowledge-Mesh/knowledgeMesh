@@ -31,8 +31,8 @@ const (
 	defaultConnGraceSeconds      = 60
 	defaultMaxReservations       = 512
 	defaultMaxCircuitsPerPeer    = 4
-	defaultMaxBandwidthPerPeer   = 4 << 20 // 4 MiB per relay circuit window
-	defaultRelayCircuitDurationS = 120
+	defaultMaxBandwidthPerPeer   = 32 << 20 // 32 MiB per relay circuit window
+	defaultRelayCircuitDurationS = 3600     // 1 hour
 )
 
 type Config struct {

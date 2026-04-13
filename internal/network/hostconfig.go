@@ -286,7 +286,7 @@ func libp2pOptions(ctx context.Context, cfg HostConfig, kadPtr **dht.IpfsDHT) ([
 		libp2p.EnableAutoRelayWithStaticRelays(relayInfos, autorelay.WithBootDelay(0),
 			autorelay.WithMinCandidates(1),
 			autorelay.WithNumRelays(1),
-			autorelay.WithMaxCandidates(1),
+			autorelay.WithMaxCandidates(10),
 			autorelay.WithBackoff(5*time.Second)),
 
 		// DCUtR hole punching: coordinates direct connection upgrade over relay (see /libp2p/dcutr).

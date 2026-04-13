@@ -96,7 +96,11 @@ func SendRequest(ctx context.Context, h host.Host, target peer.ID, pid protocol.
 }
 
 func sendRequestWithRoute(ctx context.Context, h host.Host, target peer.ID, pid protocol.ID, request []byte) ([]byte, string, error) {
-	s, err := h.NewStream(ctx, target, pid)
+
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, dialTimeout)
+	s, err := h.NewStream(network.WithAllowLimitedConn(ctxWithTimeout, string(pid)), target, pid)
+	cancel()
+	//s, err := h.NewStream(ctx, target, pid)
 	if err != nil {
 		GetP2PObserver().ObserveConnectionFailure()
 		return nil, "", err
