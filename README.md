@@ -235,7 +235,7 @@ After `go build -o bin/ ./cmd/...`, smoke-test the main binaries (see [CLI refer
 
 ## Relay node (circuit relay v2 service)
 
-Run a dedicated relay service process (stateless):
+Run a dedicated relay service process. The relay **peer ID** is stable across restarts when using the same `--identity` file (default `relay-identity.key`):
 
 ```bash
 go run ./cmd/relay serve
@@ -247,6 +247,7 @@ Flags:
 | Flag | Purpose |
 |------|---------|
 | `--listen-addr` | libp2p listen multiaddr (default `/ip4/0.0.0.0/udp/4001/quic-v1`) |
+| `--identity` | Path to persisted Ed25519 private key file (default `relay-identity.key` in cwd); same file keeps the relay **peer ID** stable across restarts |
 | `--max-reservations` | Max active relay reservations |
 | `--max-circuits-per-peer` | Max relayed circuits per peer |
 | `--max-bandwidth-per-peer-bytes` | Max relayed bytes per peer circuit window |
@@ -254,6 +255,7 @@ Flags:
 Environment overrides:
 
 - `RELAY_LISTEN_ADDR`
+- `RELAY_IDENTITY_FILE` (override identity path; default `relay-identity.key`)
 - `RELAY_MAX_RESERVATIONS`
 - `RELAY_MAX_CIRCUITS_PER_PEER`
 - `RELAY_MAX_BANDWIDTH_PER_PEER_BYTES`
@@ -267,6 +269,15 @@ Docker (lightweight service):
 ```bash
 docker build -f Dockerfile.relay -t knowledgemesh-relay .
 docker run --rm -p 4001:4001/tcp -p 4001:4001/udp knowledgemesh-relay
+```
+
+For a **stable relay peer ID** across container restarts, mount a volume and point the identity file at it (the default `relay-identity.key` is created in the process working directory):
+
+```bash
+docker run --rm -p 4001:4001/tcp -p 4001:4001/udp \
+  -v relay-id:/data \
+  -e RELAY_IDENTITY_FILE=/data/relay-identity.key \
+  knowledgemesh-relay
 ```
 
 ## Seller

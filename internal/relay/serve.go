@@ -37,6 +37,9 @@ const (
 
 type Config struct {
 	ListenAddr string
+	// IdentityFile is the path to the persisted Ed25519 private key (libp2p peer identity).
+	// Same file on the same machine yields the same relay peer ID across restarts.
+	IdentityFile string
 
 	ConnLowWater     int
 	ConnHighWater    int
@@ -50,6 +53,7 @@ type Config struct {
 func defaultConfig() Config {
 	return Config{
 		ListenAddr:       defaultListenAddr,
+		IdentityFile:     defaultIdentityFile,
 		ConnLowWater:     defaultConnLowWater,
 		ConnHighWater:    defaultConnHighWater,
 		ConnGracePeriod:  time.Duration(defaultConnGraceSeconds) * time.Second,
@@ -71,6 +75,7 @@ func NewServeCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&cfg.ListenAddr, "listen-addr", cfg.ListenAddr, "libp2p listen multiaddr")
+	cmd.Flags().StringVar(&cfg.IdentityFile, "identity", cfg.IdentityFile, "Path to persisted Ed25519 identity key (same file ⇒ stable relay peer ID across restarts)")
 	cmd.Flags().IntVar(&cfg.MaxReservations, "max-reservations", cfg.MaxReservations, "Max relay reservations")
 	cmd.Flags().IntVar(&cfg.MaxCircuitsPeer, "max-circuits-per-peer", cfg.MaxCircuitsPeer, "Max relayed circuits per peer")
 	cmd.Flags().Int64Var(&cfg.MaxBandwidthPeer, "max-bandwidth-per-peer-bytes", cfg.MaxBandwidthPeer, "Max relayed bytes per peer circuit window")
@@ -88,6 +93,11 @@ func run(cfg Config) error {
 		return fmt.Errorf("conn manager: %w", err)
 	}
 
+	priv, err := LoadOrCreateIdentity(cfg.IdentityFile)
+	if err != nil {
+		return fmt.Errorf("relay identity: %w", err)
+	}
+
 	res := relayv2.DefaultResources()
 	res.MaxReservations = cfg.MaxReservations
 	res.MaxCircuits = cfg.MaxCircuitsPeer
@@ -97,6 +107,7 @@ func run(cfg Config) error {
 	}
 
 	opts := []libp2p.Option{
+		libp2p.Identity(priv),
 		libp2p.ListenAddrStrings(cfg.ListenAddr, "/ip4/0.0.0.0/tcp/4001"),
 		libp2p.Transport(quic.NewTransport),
 		libp2p.Transport(tcp.NewTCPTransport),
@@ -129,6 +140,9 @@ func run(cfg Config) error {
 
 func applyEnv(cfg *Config) {
 	cfg.ListenAddr = envString("RELAY_LISTEN_ADDR", cfg.ListenAddr)
+	if v := strings.TrimSpace(os.Getenv("RELAY_IDENTITY_FILE")); v != "" {
+		cfg.IdentityFile = v
+	}
 	cfg.MaxReservations = envInt("RELAY_MAX_RESERVATIONS", cfg.MaxReservations)
 	cfg.MaxCircuitsPeer = envInt("RELAY_MAX_CIRCUITS_PER_PEER", cfg.MaxCircuitsPeer)
 	cfg.MaxBandwidthPeer = envInt64("RELAY_MAX_BANDWIDTH_PER_PEER_BYTES", cfg.MaxBandwidthPeer)
