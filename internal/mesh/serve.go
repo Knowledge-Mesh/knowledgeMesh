@@ -23,6 +23,7 @@ func NewMeshServeCommand() *cobra.Command {
 		controlURL   string
 		email        string
 		password     string
+		p2pIdentity  string
 		p2pDebug     bool
 		p2pDebugHTTP string
 	)
@@ -31,6 +32,7 @@ func NewMeshServeCommand() *cobra.Command {
 		Use:   "serve",
 		Short: "Start buyer HTTP API and libp2p node (requires control pane login)",
 		Long: `Starts the buyer mesh API after authenticating to the control pane with your buyer email and password.
+The libp2p peer identity file is keyed by your control-pane buyer id (after login), not email alone.
 
 Prerequisites:
   • Run the control HTTP API with PostgreSQL (see: control api); register buyers and sellers there.
@@ -43,8 +45,28 @@ Example:
 
 Use the printed session token as Authorization: Bearer or X-Session-ID for /v1/chat/completions.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if strings.TrimSpace(controlURL) == "" || strings.TrimSpace(email) == "" || strings.TrimSpace(password) == "" {
+				return fmt.Errorf("required: --control-url, --email, and --password (buyer must log in to the control pane)")
+			}
+
 			ctx := context.Background()
+			cc := control.NewClient(controlURL)
+			tok, buyerID, name, emailCanon, err := cc.LoginBuyer(email, password)
+			if err != nil {
+				return fmt.Errorf("control login: %w", err)
+			}
+			if strings.TrimSpace(buyerID) == "" {
+				return fmt.Errorf("control login: empty buyer id")
+			}
+
+			priv, idPath, err := network.LoadOrCreateAccountP2PIdentity(network.AccountRoleBuyer, controlURL, buyerID, p2pIdentity)
+			if err != nil {
+				return fmt.Errorf("p2p identity: %w", err)
+			}
+			log.Printf("[mesh] libp2p identity: %s", idPath)
+
 			cfg := network.DefaultHostConfig(p2pAddr)
+			cfg.Identity = priv
 			cfg.MergeStaticRelays(relays)
 			if p2pDebug || strings.TrimSpace(p2pDebugHTTP) != "" {
 				v := true
@@ -77,18 +99,15 @@ Use the printed session token as Authorization: Bearer or X-Session-ID for /v1/c
 				}
 			}
 
-			if strings.TrimSpace(controlURL) == "" || strings.TrimSpace(email) == "" || strings.TrimSpace(password) == "" {
-				return fmt.Errorf("required: --control-url, --email, and --password (buyer must log in to the control pane)")
+			bm := buyer.NewManager()
+			st, err := bm.EstablishControlSession(name, emailCanon, buyerID, tok)
+			if err != nil {
+				return fmt.Errorf("buyer session: %w", err)
 			}
 
-			bm := buyer.NewManager()
 			rt := NewRuntime(bm, h)
 			rt.Router = network.NewMessageRouter(h, connTracker, hpMgr, network.DefaultMessageRouterConfig())
-			rt.Control = control.NewClient(controlURL)
-			st, err := rt.Login(email, password)
-			if err != nil {
-				return fmt.Errorf("control login: %w", err)
-			}
+			rt.Control = cc
 			log.Printf("authenticated to control pane; for this session use Authorization: Bearer %s or X-Session-ID: %s", st.SessionID, st.SessionID)
 
 			srv := api.NewServer(apiAddr, rt)
@@ -108,6 +127,7 @@ Use the printed session token as Authorization: Bearer or X-Session-ID for /v1/c
 	cmd.Flags().StringVar(&controlURL, "control-url", "", "Control pane base URL (required), e.g. http://127.0.0.1:8090")
 	cmd.Flags().StringVar(&email, "email", "", "Buyer email for control pane login (required)")
 	cmd.Flags().StringVar(&password, "password", "", "Buyer password for control pane login (required)")
+	cmd.Flags().StringVar(&p2pIdentity, "p2p-identity", "", "Path to persisted libp2p identity key (optional; default: per-account file under user config, or "+network.EnvP2PIdentityFile+")")
 	cmd.Flags().BoolVar(&p2pDebug, "p2p-debug", false, "Enable P2P connectivity diagnostics (or set KM_P2P_DEBUG=1)")
 	cmd.Flags().StringVar(&p2pDebugHTTP, "p2p-debug-http", "", "Optional debug HTTP listen addr (example: 127.0.0.1:9091); implies --p2p-debug")
 	return cmd

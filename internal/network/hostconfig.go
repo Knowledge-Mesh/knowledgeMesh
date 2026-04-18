@@ -10,6 +10,7 @@ import (
 
 	libp2p "github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
+	"github.com/libp2p/go-libp2p/core/crypto"
 	host "github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/routing"
@@ -70,6 +71,9 @@ type HostConfig struct {
 	EnableP2PDHT bool
 	// P2PBootstrapPeers are full multiaddr strings (including /p2p/<peerID>) for outbound connects and DHT bootstrap.
 	P2PBootstrapPeers []string
+	// Identity, if set, is used as the libp2p host key (stable peer ID across restarts when persisted).
+	// When nil, libp2p generates an ephemeral identity each run.
+	Identity crypto.PrivKey
 }
 
 // DefaultHostConfig builds listen addresses (QUIC + TCP fallback) and loads static relays from
@@ -249,8 +253,12 @@ func libp2pOptions(ctx context.Context, cfg HostConfig, kadPtr **dht.IpfsDHT) ([
 		return nil, fmt.Errorf("bootstrap peer: %w", err)
 	}
 
-	// Order: transports (QUIC then TCP) → security → muxer → NAT → relay/autorelay → hole punch → connmgr → ping.
-	opts := []libp2p.Option{
+	// Order: identity (optional) → transports (QUIC then TCP) → security → muxer → NAT → relay/autorelay → hole punch → connmgr → ping.
+	var opts []libp2p.Option
+	if cfg.Identity != nil {
+		opts = append(opts, libp2p.Identity(cfg.Identity))
+	}
+	opts = append(opts,
 		libp2p.ListenAddrStrings(cfg.ListenAddrs...),
 		libp2p.WithDialTimeout(dialTimeout),
 
@@ -295,7 +303,7 @@ func libp2pOptions(ctx context.Context, cfg HostConfig, kadPtr **dht.IpfsDHT) ([
 		libp2p.ConnectionManager(mgr),
 		libp2p.Ping(true),
 		libp2p.ForceReachabilityPrivate(),
-	}
+	)
 
 	if cfg.EnableP2PDHT {
 		opts = append(opts, libp2p.Routing(func(h host.Host) (routing.PeerRouting, error) {

@@ -22,13 +22,14 @@ import (
 // Requires control pane login (--control-url, --email, --password). Model list and duty come from PostgreSQL via the control API.
 func NewServeCommand() *cobra.Command {
 	var (
-		p2pAddr    string
-		relays     []string
-		bootstrap  []string
-		p2pDHT     bool
-		controlURL string
-		email      string
-		password   string
+		p2pAddr     string
+		relays      []string
+		bootstrap   []string
+		p2pDHT      bool
+		controlURL  string
+		email       string
+		password    string
+		p2pIdentity string
 	)
 
 	cmd := &cobra.Command{
@@ -47,7 +48,23 @@ func NewServeCommand() *cobra.Command {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
+			cc := control.NewClient(controlURL)
+			tok, prof, err := cc.LoginSeller(email, password)
+			if err != nil {
+				return fmt.Errorf("control login: %w", err)
+			}
+			if strings.TrimSpace(prof.SellerID) == "" {
+				return fmt.Errorf("control login: empty seller id")
+			}
+
+			priv, idPath, err := network.LoadOrCreateAccountP2PIdentity(network.AccountRoleSeller, controlURL, prof.SellerID, p2pIdentity)
+			if err != nil {
+				return fmt.Errorf("p2p identity: %w", err)
+			}
+			log.Printf("[seller] libp2p identity: %s", idPath)
+
 			cfg := network.DefaultHostConfig(p2pAddr)
+			cfg.Identity = priv
 			cfg.MergeStaticRelays(relays)
 			cfg.MergeP2PBootstrapPeers(bootstrap)
 			if p2pDHT {
@@ -75,11 +92,6 @@ func NewServeCommand() *cobra.Command {
 			netMon.Start(ctx)
 			network.StartSellerReachabilityLogger(ctx, h)
 
-			cc := control.NewClient(controlURL)
-			tok, prof, err := cc.LoginSeller(email, password)
-			if err != nil {
-				return fmt.Errorf("control login: %w", err)
-			}
 			netMon.OnAutoNATRefresh = func(ev network.NetworkChangeEvent) {
 				log.Printf("network changed (ip=%v iface=%v): libp2p AutoNAT continues probing in background", ev.IPChanged, ev.InterfaceChanged)
 			}
@@ -135,6 +147,7 @@ func NewServeCommand() *cobra.Command {
 	cmd.Flags().StringVar(&controlURL, "control-url", "", "Control pane base URL (required), e.g. http://127.0.0.1:8090")
 	cmd.Flags().StringVar(&email, "email", "", "Seller email for control login (required)")
 	cmd.Flags().StringVar(&password, "password", "", "Seller password for control login (required)")
+	cmd.Flags().StringVar(&p2pIdentity, "p2p-identity", "", "Path to persisted libp2p identity key (optional; default: per-account file under user config, or "+network.EnvP2PIdentityFile+")")
 	return cmd
 }
 
