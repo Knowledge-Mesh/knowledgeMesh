@@ -49,7 +49,7 @@ flowchart LR
     A1 --- A2
   end
 
-  subgraph P2["Process: mesh serve / buyer start"]
+  subgraph P2["Process: buyer serve"]
     B1[OpenAI-style API]
     B2[Mesh runtime]
     B3[libp2p QUIC]
@@ -80,6 +80,7 @@ flowchart TB
   end
 
   subgraph internal["internal/"]
+    i0[sandbox — mock buyer API]
     i1[control — API store JWT billing]
     i2[mesh — runtime + control client]
     i3[api — HTTP handlers]
@@ -95,7 +96,7 @@ flowchart TB
   end
 
   c4 --> i1
-  c1 --> i2
+  c1 --> i0
   c2 --> i2
   c3 --> i4
   c5 --> i8
@@ -141,10 +142,10 @@ flowchart LR
 ```mermaid
 flowchart LR
   subgraph clients["CLIs / processes"]
-    KM[knowledgeMesh]
-    BuyerCLI[buyer]
-    SellerCLI[seller]
-    CtlBin[control]
+  KM[knowledgeMesh sandbox]
+  BuyerCLI[buyer]
+  SellerCLI[seller]
+  CtlBin[control]
   end
 
   subgraph control["Control pane HTTP API"]
@@ -175,7 +176,7 @@ flowchart LR
 ```
 
 - **Control pane** (`control api`) is the source of truth for accounts (buyers and sellers), seller models and duty, **billing** (wallets, quotas, transaction ledger), and **matchmaking** inputs (on-duty sellers with presence loaded from PostgreSQL).
-- **Buyer mesh** (`knowledgeMesh mesh serve` or `buyer start`) exposes OpenAI/Anthropic-style HTTP APIs, holds the buyer’s libp2p host, and calls the control API for **match → track → settle** around each inference.
+- **Buyer mesh** (`buyer serve` or `buyer start`) exposes OpenAI/Anthropic-style HTTP APIs, holds the buyer’s libp2p host, and calls the control API for **match → track → settle** around each inference.
 - **Seller** (`seller serve`) exposes inference over libp2p and reports execution metadata back to the control pane.
 - **`knowledgeMesh serve`** (no mesh) runs the same HTTP API with **mock inference** only (no `MeshRuntime`); useful for local UI tests without PostgreSQL.
 
@@ -194,8 +195,8 @@ flowchart LR
 
 | Binary | Main commands | Maps to |
 |--------|----------------|--------|
-| `knowledgeMesh` | `serve`, `mesh serve` | `cmd/knowledgeMesh` → `internal/sandbox`, `internal/mesh` |
-| `buyer` | `register`, `start`, `prompt` | `cmd/buyer` → `internal/buyer`, `internal/mesh` |
+| `knowledgeMesh` | `serve` | `cmd/knowledgeMesh` → `internal/sandbox` (mock buyer API) |
+| `buyer` | `serve`, `start`, `p2p-debug-peer`, `register`, `prompt` | `cmd/buyer` → `internal/mesh`, `internal/buyer` |
 | `seller` | `register`, `serve` | `cmd/seller` → `internal/seller`, `internal/control` client |
 | `control` | `api`, `start` | `cmd/control` → `internal/control` HTTP server or libp2p control protocol |
 | `relay` | `serve` | `cmd/relay` → `internal/relay` (circuit relay v2 service) |
@@ -225,7 +226,7 @@ JWTs distinguish **buyer** vs **seller** subjects so tokens are not interchangea
 1. **Control API** running with `DATABASE_URL` (migrations on startup).
 2. **Buyer** registered (`POST /v1/control/buyers/register` or `buyer register`).
 3. **Seller** registered, models declared, **on duty**, and **presence** posted so PostgreSQL has a routable libp2p peer id.
-4. **Buyer mesh** (`mesh serve`) logged in to control; **seller** (`seller serve`) logged in to control.
+4. **Buyer mesh** (`buyer serve`) logged in to control; **seller** (`seller serve`) logged in to control.
 5. Buyer mesh process started with relay addresses (`--relay` and/or `LIBP2P_STATIC_RELAYS`) and optional `--bootstrap` so it can reach the seller via direct or relay path.
 
 ### 2. Sequence (happy path)
@@ -281,7 +282,7 @@ The matchmaker does **not** compute geographic distance. It filters candidates t
 Seller and buyer **account** registration uses the **control pane** only:
 
 - **CLI:** `buyer register`, `seller register` (both call `POST /v1/control/.../register`).
-- **Buyer mesh** does not register users by itself; run `buyer register` (or the HTTP route) before `mesh serve` / `buyer start`.
+- **Buyer mesh** does not register users by itself; run `buyer register` (or the HTTP route) before `buyer serve` / `buyer start`.
 
 There is no separate local-file registration CLI. The [README.md](./README.md) *CLI reference* lists every command.
 

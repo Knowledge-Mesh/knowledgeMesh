@@ -40,7 +40,7 @@ Prerequisites:
   • Pass --control-url, --email, and --password so this process can log in.
 
 Example:
-  go run ./cmd/knowledgeMesh mesh serve --control-url http://127.0.0.1:8090 --email you@example.com --password '...' \\
+  go run ./cmd/buyer serve --control-url http://127.0.0.1:8090 --email you@example.com --password '...' \\
     --bootstrap '<seller-multiaddr>'
 
 Use the printed session token as Authorization: Bearer or X-Session-ID for /v1/chat/completions.`,
