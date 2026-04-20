@@ -74,6 +74,9 @@ type HostConfig struct {
 	// Identity, if set, is used as the libp2p host key (stable peer ID across restarts when persisted).
 	// When nil, libp2p generates an ephemeral identity each run.
 	Identity crypto.PrivKey
+	// ServerMode, when true, skips ForceReachabilityPrivate so reachability follows AutoNAT.
+	// Default false keeps ForceReachabilityPrivate enabled for NAT/mobile-friendly behavior.
+	ServerMode bool
 }
 
 // DefaultHostConfig builds listen addresses (QUIC + TCP fallback) and loads static relays from
@@ -302,8 +305,10 @@ func libp2pOptions(ctx context.Context, cfg HostConfig, kadPtr **dht.IpfsDHT) ([
 
 		libp2p.ConnectionManager(mgr),
 		libp2p.Ping(true),
-		libp2p.ForceReachabilityPrivate(),
 	)
+	if !cfg.ServerMode {
+		opts = append(opts, libp2p.ForceReachabilityPrivate())
+	}
 
 	if cfg.EnableP2PDHT {
 		opts = append(opts, libp2p.Routing(func(h host.Host) (routing.PeerRouting, error) {

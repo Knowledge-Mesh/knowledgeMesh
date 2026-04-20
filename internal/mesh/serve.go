@@ -26,6 +26,7 @@ func NewMeshServeCommand() *cobra.Command {
 		p2pIdentity  string
 		p2pDebug     bool
 		p2pDebugHTTP string
+		serverMode   bool
 	)
 
 	cmd := &cobra.Command{
@@ -73,6 +74,7 @@ Use the printed session token as Authorization: Bearer or X-Session-ID for /v1/c
 
 			cfg := network.DefaultHostConfig(p2pAddr)
 			cfg.Identity = priv
+			cfg.ServerMode = serverMode
 			cfg.MergeStaticRelays(relays)
 			if p2pDebug || strings.TrimSpace(p2pDebugHTTP) != "" {
 				v := true
@@ -136,5 +138,6 @@ Use the printed session token as Authorization: Bearer or X-Session-ID for /v1/c
 	cmd.Flags().StringVar(&p2pIdentity, "p2p-identity", "", "Path to persisted libp2p identity key (optional; default: per-account file under user config, or "+network.EnvP2PIdentityFile+")")
 	cmd.Flags().BoolVar(&p2pDebug, "p2p-debug", false, "Enable P2P connectivity diagnostics (or set KM_P2P_DEBUG=1)")
 	cmd.Flags().StringVar(&p2pDebugHTTP, "p2p-debug-http", "", "Optional debug HTTP listen addr (example: 127.0.0.1:9091); implies --p2p-debug")
+	cmd.Flags().BoolVar(&serverMode, "server-mode", false, "If set, omit ForceReachabilityPrivate (let AutoNAT decide; use on public servers with fixed ports)")
 	return cmd
 }

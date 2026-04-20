@@ -30,6 +30,7 @@ func NewServeCommand() *cobra.Command {
 		email       string
 		password    string
 		p2pIdentity string
+		serverMode  bool
 	)
 
 	cmd := &cobra.Command{
@@ -69,6 +70,7 @@ func NewServeCommand() *cobra.Command {
 
 			cfg := network.DefaultHostConfig(p2pAddr)
 			cfg.Identity = priv
+			cfg.ServerMode = serverMode
 			cfg.MergeStaticRelays(relays)
 			cfg.MergeP2PBootstrapPeers(bootstrap)
 			if p2pDHT {
@@ -152,6 +154,7 @@ func NewServeCommand() *cobra.Command {
 	cmd.Flags().StringVar(&email, "email", "", "Seller email for control login (required)")
 	cmd.Flags().StringVar(&password, "password", "", "Seller password for control login (required)")
 	cmd.Flags().StringVar(&p2pIdentity, "p2p-identity", "", "Path to persisted libp2p identity key (optional; default: per-account file under user config, or "+network.EnvP2PIdentityFile+")")
+	cmd.Flags().BoolVar(&serverMode, "server-mode", false, "If set, omit ForceReachabilityPrivate (let AutoNAT decide; use on public servers with fixed ports)")
 	return cmd
 }
 
