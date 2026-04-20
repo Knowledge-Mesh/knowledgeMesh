@@ -19,7 +19,7 @@ import (
 )
 
 // NewServeCommand runs a libp2p QUIC listener, registers inference, and executes via sandbox + configured model backends (Ollama/OpenAI/Anthropic from control API).
-// Requires control pane login (--control-url, --email, --password). Model list and duty come from PostgreSQL via the control API.
+// Requires control pane login (--email, --password; --control-url optional, default http://127.0.0.1:8090). Model list and duty come from PostgreSQL via the control API.
 func NewServeCommand() *cobra.Command {
 	var (
 		p2pAddr     string
@@ -41,9 +41,13 @@ func NewServeCommand() *cobra.Command {
 			"and declare models (PUT /v1/control/sellers/me/models with a bearer token from login).\n\n" +
 			"Copy the printed \"dial this bootstrap\" line for the buyer's --bootstrap flag; set sellers-catalog peerId to this node's peer id.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if strings.TrimSpace(controlURL) == "" || strings.TrimSpace(email) == "" || strings.TrimSpace(password) == "" {
-				return fmt.Errorf("required: --control-url, --email, and --password (seller must log in to the control pane)")
+			if strings.TrimSpace(email) == "" || strings.TrimSpace(password) == "" {
+				return fmt.Errorf("required: --email and --password (seller must log in to the control pane)")
 			}
+
+			var usedDef bool
+			controlURL, usedDef = control.ResolveControlURL(controlURL)
+			control.WarnIfDefaultControlURL(usedDef, controlURL)
 
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
@@ -144,7 +148,7 @@ func NewServeCommand() *cobra.Command {
 	cmd.Flags().StringArrayVar(&relays, "relay", nil, "Circuit relay v2 multiaddr with /p2p/<relayID> (repeatable); merged with LIBP2P_STATIC_RELAYS")
 	cmd.Flags().StringArrayVar(&bootstrap, "p2p-bootstrap", nil, "Bootstrap peer multiaddr with /p2p/<peerID> (repeatable); merged with LIBP2P_BOOTSTRAP_PEERS; use with --p2p-dht for AutoNAT reachability")
 	cmd.Flags().BoolVar(&p2pDHT, "p2p-dht", false, "Enable Kademlia DHT (ModeAuto) for peer discovery and AutoNAT v2 probes; also set KM_P2P_DHT=1 or bootstrap peers via env")
-	cmd.Flags().StringVar(&controlURL, "control-url", "", "Control pane base URL (required), e.g. http://127.0.0.1:8090")
+	cmd.Flags().StringVar(&controlURL, "control-url", "", "Control pane base URL (optional; default "+control.DefaultControlURL+")")
 	cmd.Flags().StringVar(&email, "email", "", "Seller email for control login (required)")
 	cmd.Flags().StringVar(&password, "password", "", "Seller password for control login (required)")
 	cmd.Flags().StringVar(&p2pIdentity, "p2p-identity", "", "Path to persisted libp2p identity key (optional; default: per-account file under user config, or "+network.EnvP2PIdentityFile+")")

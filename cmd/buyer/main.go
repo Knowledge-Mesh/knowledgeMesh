@@ -19,10 +19,11 @@ func main() {
 	serve.Aliases = []string{"start"}
 	serve.Short = "Start buyer HTTP API and libp2p node (matchmaking + remote inference)"
 	serve.Long = `Starts the buyer-facing HTTP API and a libp2p QUIC host after logging in to the control pane.
-Requires --control-url, --email, and --password. Register first: buyer register --control-url ... --name ... --email ... --password ...
+Requires --email and --password. --control-url is optional (defaults to http://127.0.0.1:8090; a warning is printed if omitted).
+Register first: buyer register --name ... --email ... --password ...
 
 Example:
-  go run ./cmd/buyer serve --control-url http://127.0.0.1:8090 --email you@example.com --password '...'`
+  go run ./cmd/buyer serve --email you@example.com --password '...'`
 
 	debugPeer := mesh.NewP2PDebugPeerCommand()
 

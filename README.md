@@ -39,14 +39,16 @@ Commands are split by binary: **`knowledgeMesh`** is the sandbox/mock buyer API 
 | `knowledgeMesh` | `serve` | Buyer HTTP API + libp2p host, **mock inference** only (`Mesh` nil). Flags: `--api-addr`, `--p2p-addr`. |
 | `buyer` | `serve` (alias: `start`) | Buyer mesh: control login, control matchmaking/billing, libp2p inference to matched seller. |
 | `buyer` | `p2p-debug-peer <peerID>` | Query local P2P debug HTTP API and print peer connectivity details (type, paths, last hole punch). |
-| `buyer` | `register` | Register a buyer on the control pane (`--control-url`, `--name`, `--email`, `--password`). |
+| `buyer` | `register` | Register a buyer on the control pane (`--name`, `--email`, `--password`; `--control-url` optional, see below). |
 | `buyer` | `prompt` | Log in to control and send one `POST /v1/chat/completions` to a buyer API (`--api-url`, `--prompt`, …). |
-| `seller` | `register` | Register a seller on the control pane (`--control-url`, `--name`, `--email`, `--password`). |
-| `seller` | `serve` | QUIC listener + inference; requires `--control-url`, `--email`, `--password`; optional `--p2p-addr`. Model backend (e.g. **Ollama**) from control API — see [Seller](#seller). |
+| `seller` | `register` | Register a seller on the control pane (`--name`, `--email`, `--password`; `--control-url` optional, see below). |
+| `seller` | `serve` | QUIC listener + inference; requires `--email`, `--password`; `--control-url` optional (default `http://127.0.0.1:8090`). Optional `--p2p-addr`. Model backend (e.g. **Ollama**) from control API — see [Seller](#seller). |
 | `control` | `api` | HTTP control pane + PostgreSQL (`DATABASE_URL`, `--http-addr`, `--jwt-secret`). |
 | `control` | `start` | libp2p control protocol node (`/knowledgemesh/control/1.0.0`), optional `--p2p-addr`. |
 | `relay` | `serve` | Minimal stateless **circuit relay v2 service** (accepts reservations, relayed connections, env/flag limits). |
 | `demo` | `run` | Placeholder demo workflow. |
+
+For **buyer** and **seller** commands that call the control HTTP API, **`--control-url` is optional** and defaults to **`http://127.0.0.1:8090`**. If you omit it, the process **prints a warning** and uses that default—set `--control-url` explicitly for non-local or production control panes.
 
 ## Control pane (HTTP API + PostgreSQL)
 
@@ -139,18 +141,16 @@ go run ./cmd/control start --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
 ## Buyer workflow
 
 1. Start PostgreSQL and run **`control api`** with `DATABASE_URL` set.
-2. **Register** a buyer (CLI or HTTP):
+2. **Register** a buyer (CLI or HTTP). You can omit `--control-url` to use the default `http://127.0.0.1:8090` (a warning is logged).
    ```bash
    go run ./cmd/buyer register \
-     --control-url http://127.0.0.1:8090 \
      --name "My Name" \
      --email you@example.com \
      --password 'secure-password'
    ```
-3. **Start the buyer mesh** (HTTP API + libp2p). You must pass credentials so the process can log in to the control pane. **Matchmaking and billing** run on the control API (PostgreSQL); ensure at least one seller is registered, on duty, has models, and has posted **presence** (`peerId` and **listen multiaddrs**) so the control pane can return `sellerPeerId` and **`sellerListenAddrs`** on match (the buyer dials the seller using those addresses).
+3. **Start the buyer mesh** (HTTP API + libp2p). You must pass **email** and **password** so the process can log in to the control pane (same default for `--control-url` as above). **Matchmaking and billing** run on the control API (PostgreSQL); ensure at least one seller is registered, on duty, has models, and has posted **presence** (`peerId` and **listen multiaddrs**) so the control pane can return `sellerPeerId` and **`sellerListenAddrs`** on match (the buyer dials the seller using those addresses).
    ```bash
    go run ./cmd/buyer serve \
-     --control-url http://127.0.0.1:8090 \
      --email you@example.com \
      --password 'secure-password'
    ```
@@ -162,7 +162,6 @@ go run ./cmd/control start --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
 4. Optional: **one-shot prompt** via CLI (logs in to control, then calls the buyer mesh chat API):
    ```bash
    go run ./cmd/buyer prompt \
-     --control-url http://127.0.0.1:8090 \
      --email you@example.com \
      --password 'secure-password' \
      --api-url http://127.0.0.1:8080 \
@@ -173,7 +172,7 @@ go run ./cmd/control start --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
 
 | Flag | Purpose |
 |------|---------|
-| `--control-url` | **Required.** Control pane base URL, e.g. `http://127.0.0.1:8090` |
+| `--control-url` | **Optional.** Control pane base URL (default `http://127.0.0.1:8090`). If omitted, a **warning** is logged and the default is used. |
 | `--email` | **Required.** Buyer email (registered on the control pane) |
 | `--password` | **Required.** Buyer password |
 | `--api-addr` | Buyer HTTP API listen address (default `:8080`) |
@@ -199,7 +198,7 @@ Debug CLI example:
 
 ```bash
 KM_P2P_DEBUG=1 KM_P2P_DEBUG_HTTP=127.0.0.1:9091 \
-  go run ./cmd/buyer serve --control-url http://127.0.0.1:8090 --email you@example.com --password '...'
+  go run ./cmd/buyer serve --email you@example.com --password '...'
 
 go run ./cmd/buyer p2p-debug-peer <PEER_ID> --http http://127.0.0.1:9091
 ```
@@ -219,13 +218,13 @@ After `go build -o bin/ ./cmd/...`, smoke-test the main binaries (see [CLI refer
 
 ```bash
 ./bin/knowledgeMesh serve
-./bin/buyer serve --control-url http://127.0.0.1:8090 --email you@example.com --password '...'
-./bin/buyer serve --control-url http://127.0.0.1:8090 --email you@example.com --password '...' --bootstrap '/ip4/127.0.0.1/udp/4001/quic-v1/p2p/<PEER_ID>'
-./bin/buyer register --control-url http://127.0.0.1:8090 --name 'Me' --email you@example.com --password '...'
-./bin/buyer start --control-url http://127.0.0.1:8090 --email you@example.com --password '...'
-./bin/buyer start --control-url http://127.0.0.1:8090 --email you@example.com --password '...' --bootstrap '/ip4/127.0.0.1/udp/4001/quic-v1/p2p/<PEER_ID>'
-./bin/seller register --control-url http://127.0.0.1:8090 --name 'Seller' --email seller@example.com --password '...'
-./bin/seller serve --control-url http://127.0.0.1:8090 --email seller@example.com --password '...'
+./bin/buyer serve --email you@example.com --password '...'
+./bin/buyer serve --email you@example.com --password '...' --bootstrap '/ip4/127.0.0.1/udp/4001/quic-v1/p2p/<PEER_ID>'
+./bin/buyer register --name 'Me' --email you@example.com --password '...'
+./bin/buyer start --email you@example.com --password '...'
+./bin/buyer start --email you@example.com --password '...' --bootstrap '/ip4/127.0.0.1/udp/4001/quic-v1/p2p/<PEER_ID>'
+./bin/seller register --name 'Seller' --email seller@example.com --password '...'
+./bin/seller serve --email seller@example.com --password '...'
 ./bin/control api
 ./bin/control start
 ./bin/relay serve
@@ -287,17 +286,17 @@ Register and declare models via the control API (or `seller register`), then run
 
 ```bash
 go run ./cmd/seller register \
-  --control-url http://127.0.0.1:8090 \
   --name "Seller Name" \
   --email seller@example.com \
   --password 'secure-password'
 
 go run ./cmd/seller serve \
-  --control-url http://127.0.0.1:8090 \
   --email seller@example.com \
   --password 'secure-password' \
   --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
 ```
+
+Omitting `--control-url` uses `http://127.0.0.1:8090` and logs a warning; set it explicitly when the control API is not on localhost.
 
 **Optional DHT + bootstrap (NAT / AutoNAT):** if the seller only listens and has no other libp2p peers, AutoNAT v2 may not emit reachability updates quickly. Enable Kademlia DHT and pass at least one reachable bootstrap peer (often your **relay** multiaddr, or any well-connected node): `--p2p-dht` and repeatable `--p2p-bootstrap '/ip4/.../udp/.../quic-v1/p2p/<PEER_ID>'`. Environment equivalents: `KM_P2P_DHT=1`, `LIBP2P_BOOTSTRAP_PEERS` (comma-separated, same format as `--relay` / `LIBP2P_STATIC_RELAYS`). After relay addresses appear in `host.Addrs()`, repost seller presence if buyers still cannot dial.
 

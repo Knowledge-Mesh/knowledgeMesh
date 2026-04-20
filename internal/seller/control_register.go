@@ -22,9 +22,11 @@ func NewControlRegisterCommand() *cobra.Command {
 		Short: "Register a seller account on the control pane",
 		Long:  `Requires a running control API (control api) and DATABASE_URL. Stores credentials in PostgreSQL.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			controlURL = strings.TrimSpace(controlURL)
-			if controlURL == "" || strings.TrimSpace(name) == "" || strings.TrimSpace(email) == "" || password == "" {
-				return fmt.Errorf("required: --control-url, --name, --email, and --password")
+			var usedDef bool
+			controlURL, usedDef = control.ResolveControlURL(controlURL)
+			control.WarnIfDefaultControlURL(usedDef, controlURL)
+			if strings.TrimSpace(name) == "" || strings.TrimSpace(email) == "" || password == "" {
+				return fmt.Errorf("required: --name, --email, and --password")
 			}
 			cc := control.NewClient(controlURL)
 			id, err := cc.RegisterSeller(name, email, password)
@@ -36,7 +38,7 @@ func NewControlRegisterCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&controlURL, "control-url", "", "Control pane base URL (e.g. http://127.0.0.1:8090)")
+	cmd.Flags().StringVar(&controlURL, "control-url", "", "Control pane base URL (optional; default "+control.DefaultControlURL+")")
 	cmd.Flags().StringVar(&name, "name", "", "Display name")
 	cmd.Flags().StringVar(&email, "email", "", "Email")
 	cmd.Flags().StringVar(&password, "password", "", "Password")

@@ -37,17 +37,23 @@ The libp2p peer identity file is keyed by your control-pane buyer id (after logi
 Prerequisites:
   • Run the control HTTP API with PostgreSQL (see: control api); register buyers and sellers there.
   • Sellers must be on-duty with models and presence (peer id) recorded in the control pane.
-  • Pass --control-url, --email, and --password so this process can log in.
+  • Pass --email and --password so this process can log in. --control-url is optional (defaults to http://127.0.0.1:8090).
 
 Example:
+  go run ./cmd/buyer serve --email you@example.com --password '...'
+
   go run ./cmd/buyer serve --control-url http://127.0.0.1:8090 --email you@example.com --password '...' \\
     --bootstrap '<seller-multiaddr>'
 
 Use the printed session token as Authorization: Bearer or X-Session-ID for /v1/chat/completions.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if strings.TrimSpace(controlURL) == "" || strings.TrimSpace(email) == "" || strings.TrimSpace(password) == "" {
-				return fmt.Errorf("required: --control-url, --email, and --password (buyer must log in to the control pane)")
+			if strings.TrimSpace(email) == "" || strings.TrimSpace(password) == "" {
+				return fmt.Errorf("required: --email and --password (buyer must log in to the control pane)")
 			}
+
+			var usedDef bool
+			controlURL, usedDef = control.ResolveControlURL(controlURL)
+			control.WarnIfDefaultControlURL(usedDef, controlURL)
 
 			ctx := context.Background()
 			cc := control.NewClient(controlURL)
@@ -124,7 +130,7 @@ Use the printed session token as Authorization: Bearer or X-Session-ID for /v1/c
 	cmd.Flags().StringVar(&p2pAddr, "p2p-addr", network.DefaultQUICListenAddr, "libp2p QUIC listen multiaddr")
 	cmd.Flags().StringArrayVar(&bootstrap, "bootstrap", nil, "Bootstrap peer multiaddr (repeatable), e.g. /ip4/127.0.0.1/udp/4001/quic-v1/p2p/<PeerID>")
 	cmd.Flags().StringArrayVar(&relays, "relay", nil, "Circuit relay v2 multiaddr with /p2p/<relayID> (repeatable); merged with LIBP2P_STATIC_RELAYS for AutoRelay")
-	cmd.Flags().StringVar(&controlURL, "control-url", "", "Control pane base URL (required), e.g. http://127.0.0.1:8090")
+	cmd.Flags().StringVar(&controlURL, "control-url", "", "Control pane base URL (optional; default "+control.DefaultControlURL+")")
 	cmd.Flags().StringVar(&email, "email", "", "Buyer email for control pane login (required)")
 	cmd.Flags().StringVar(&password, "password", "", "Buyer password for control pane login (required)")
 	cmd.Flags().StringVar(&p2pIdentity, "p2p-identity", "", "Path to persisted libp2p identity key (optional; default: per-account file under user config, or "+network.EnvP2PIdentityFile+")")
