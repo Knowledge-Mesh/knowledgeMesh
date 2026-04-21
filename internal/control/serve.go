@@ -16,7 +16,10 @@ import (
 
 // NewServeCommand runs a libp2p QUIC node with the control protocol registered.
 func NewServeCommand() *cobra.Command {
-	var p2pAddr string
+	var (
+		p2pAddr string
+		relays  []string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "start",
@@ -27,11 +30,28 @@ func NewServeCommand() *cobra.Command {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
-			h, err := network.NewHost(ctx, p2pAddr)
+			cfg := network.DefaultHostConfig(p2pAddr)
+			cfg.MergeStaticRelays(relays)
+			h, hpMgr, kad, err := network.NewHostWithConfigAndHolePunch(ctx, cfg)
 			if err != nil {
 				return err
 			}
 			defer h.Close()
+			defer hpMgr.Close()
+			defer func() {
+				if kad != nil {
+					_ = kad.Close()
+				}
+			}()
+			hpMgr.Start(ctx)
+			connTracker := network.NewConnectionTypeTracker(h)
+			defer connTracker.Close()
+			connTracker.Start()
+			network.StartP2PDebugMonitors(ctx, h)
+			network.StartP2PDebugHTTPServerIfConfigured(ctx, "", h, connTracker, hpMgr)
+
+			netMon := network.NewNetworkMonitor(h, hpMgr, connTracker, network.DefaultNetworkMonitorConfig())
+			netMon.Start(ctx)
 
 			RegisterHandler(h)
 
@@ -46,6 +66,7 @@ func NewServeCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&p2pAddr, "p2p-addr", network.DefaultQUICListenAddr, "libp2p QUIC listen multiaddr")
+	cmd.Flags().StringArrayVar(&relays, "relay", nil, "Circuit relay v2 multiaddr (repeatable); merged with LIBP2P_STATIC_RELAYS")
 	return cmd
 }
 

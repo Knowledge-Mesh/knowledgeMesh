@@ -25,9 +25,11 @@ func NewRegisterCommand() *cobra.Command {
 		Use:   "register",
 		Short: "Register a buyer account on the control pane",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			controlURL = strings.TrimSpace(controlURL)
-			if controlURL == "" || strings.TrimSpace(name) == "" || strings.TrimSpace(email) == "" || password == "" {
-				return fmt.Errorf("required: --control-url, --name, --email, and --password")
+			var usedDef bool
+			controlURL, usedDef = control.ResolveControlURL(controlURL)
+			control.WarnIfDefaultControlURL(usedDef, controlURL)
+			if strings.TrimSpace(name) == "" || strings.TrimSpace(email) == "" || password == "" {
+				return fmt.Errorf("required: --name, --email, and --password")
 			}
 			cc := control.NewClient(controlURL)
 			id, err := cc.RegisterBuyer(name, email, password)
@@ -39,7 +41,7 @@ func NewRegisterCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&controlURL, "control-url", "", "Control pane base URL (e.g. http://127.0.0.1:8090)")
+	cmd.Flags().StringVar(&controlURL, "control-url", "", "Control pane base URL (optional; default "+control.DefaultControlURL+")")
 	cmd.Flags().StringVar(&name, "name", "", "Display name")
 	cmd.Flags().StringVar(&email, "email", "", "Email")
 	cmd.Flags().StringVar(&password, "password", "", "Password")
@@ -61,10 +63,12 @@ func NewPromptCommand() *cobra.Command {
 		Use:   "prompt",
 		Short: "Log in to the control pane and send one chat completion to the buyer HTTP API",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			controlURL = strings.TrimSpace(controlURL)
+			var usedDef bool
+			controlURL, usedDef = control.ResolveControlURL(controlURL)
+			control.WarnIfDefaultControlURL(usedDef, controlURL)
 			apiURL = strings.TrimRight(strings.TrimSpace(apiURL), "/")
-			if controlURL == "" || email == "" || password == "" || prompt == "" {
-				return fmt.Errorf("required: --control-url, --email, --password, and --prompt")
+			if email == "" || password == "" || prompt == "" {
+				return fmt.Errorf("required: --email, --password, and --prompt")
 			}
 			if apiURL == "" {
 				apiURL = "http://127.0.0.1:8080"
@@ -113,7 +117,7 @@ func NewPromptCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&controlURL, "control-url", "", "Control pane base URL (e.g. http://127.0.0.1:8090)")
+	cmd.Flags().StringVar(&controlURL, "control-url", "", "Control pane base URL (optional; default "+control.DefaultControlURL+")")
 	cmd.Flags().StringVar(&apiURL, "api-url", "http://127.0.0.1:8080", "Buyer mesh HTTP API base URL")
 	cmd.Flags().StringVar(&email, "email", "", "Buyer email")
 	cmd.Flags().StringVar(&password, "password", "", "Buyer password")

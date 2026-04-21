@@ -3,7 +3,6 @@ package main
 import (
 	"log"
 
-	"github.com/knowledgemeshgrid/knowledgemesh/internal/mesh"
 	"github.com/knowledgemeshgrid/knowledgemesh/internal/sandbox"
 	"github.com/spf13/cobra"
 )
@@ -11,16 +10,11 @@ import (
 func main() {
 	root := &cobra.Command{
 		Use:   "knowledgeMesh",
-		Short: "KnowledgeMesh node CLI (buyer mesh + mock serve)",
+		Short: "KnowledgeMesh sandbox / mock API CLI",
+		Long:  "Local sandbox HTTP API for development. Buyer mesh (serve, libp2p, control login) lives in the buyer binary: go run ./cmd/buyer serve",
 	}
 
-	meshCmd := &cobra.Command{
-		Use:   "mesh",
-		Short: "Buyer HTTP API with libp2p, matchmaking, and remote inference",
-	}
-	meshCmd.AddCommand(mesh.NewMeshServeCommand())
-
-	root.AddCommand(sandbox.NewServeCommand(), meshCmd)
+	root.AddCommand(sandbox.NewServeCommand())
 
 	if err := root.Execute(); err != nil {
 		log.Fatal(err)

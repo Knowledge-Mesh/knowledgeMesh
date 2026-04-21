@@ -24,26 +24,31 @@ go build ./...
 go test ./...
 ```
 
-That produces one binary per `cmd/*` package (for example `bin/knowledgeMesh`, `bin/buyer`, `bin/seller`, `bin/control`, `bin/demo`). On Windows, use `bin\knowledgeMesh.exe`, etc.
+Integration tests for libp2p networking (connection typing, hole punching, message routing, **P2P debug** env parsing, `BuildPeerDebugReport`, and the debug HTTP mux) live under [`tests/network/`](./tests/network/).
+
+That produces one binary per `cmd/*` package (for example `bin/knowledgeMesh`, `bin/buyer`, `bin/seller`, `bin/control`, `bin/relay`, `bin/demo`). On Windows, use `bin\knowledgeMesh.exe`, etc.
 
 Examples below use `go run ./cmd/...`; after building, run the same flags on `./bin/<name>`.
 
 ## CLI reference
 
-Commands are provided by the **`knowledgeMesh`** umbrella binary (`serve`, `mesh serve`), plus dedicated **`buyer`**, **`seller`**, **`control`**, and **`demo`** binaries. Seller registration and the seller node use **`seller`** only (no duplicate under `knowledgeMesh`). The `knowledgeMesh serve` command is implemented in `internal/sandbox` (mock API path).
+Commands are split by binary: **`knowledgeMesh`** is the sandbox/mock buyer API only; **buyer** carries the real mesh (control login, libp2p, matchmaking). Dedicated **`seller`**, **`control`**, **`relay`**, and **`demo`** binaries cover the rest. The `knowledgeMesh serve` command is implemented in `internal/sandbox` (mock API path).
 
 | Binary | Command | Purpose |
 |--------|---------|---------|
 | `knowledgeMesh` | `serve` | Buyer HTTP API + libp2p host, **mock inference** only (`Mesh` nil). Flags: `--api-addr`, `--p2p-addr`. |
-| `knowledgeMesh` | `mesh serve` | Buyer mesh: control login, control matchmaking/billing, libp2p inference to matched seller. |
-| `buyer` | `register` | Register a buyer on the control pane (`--control-url`, `--name`, `--email`, `--password`). |
-| `buyer` | `start` | Same as `knowledgeMesh mesh serve` (buyer API + libp2p + control). |
+| `buyer` | `serve` (alias: `start`) | Buyer mesh: control login, control matchmaking/billing, libp2p inference to matched seller. |
+| `buyer` | `p2p-debug-peer <peerID>` | Query local P2P debug HTTP API and print peer connectivity details (type, paths, last hole punch). |
+| `buyer` | `register` | Register a buyer on the control pane (`--name`, `--email`, `--password`; `--control-url` optional, see below). |
 | `buyer` | `prompt` | Log in to control and send one `POST /v1/chat/completions` to a buyer API (`--api-url`, `--prompt`, …). |
-| `seller` | `register` | Register a seller on the control pane (`--control-url`, `--name`, `--email`, `--password`). |
-| `seller` | `serve` | QUIC listener + inference; requires `--control-url`, `--email`, `--password`; optional `--p2p-addr`. Model backend (e.g. **Ollama**) from control API — see [Seller](#seller). |
+| `seller` | `register` | Register a seller on the control pane (`--name`, `--email`, `--password`; `--control-url` optional, see below). |
+| `seller` | `serve` | QUIC listener + inference; requires `--email`, `--password`; `--control-url` optional (default `http://127.0.0.1:8090`). Optional `--p2p-addr`. Model backend (e.g. **Ollama**) from control API — see [Seller](#seller). |
 | `control` | `api` | HTTP control pane + PostgreSQL (`DATABASE_URL`, `--http-addr`, `--jwt-secret`). |
 | `control` | `start` | libp2p control protocol node (`/knowledgemesh/control/1.0.0`), optional `--p2p-addr`. |
+| `relay` | `serve` | Minimal stateless **circuit relay v2 service** (accepts reservations, relayed connections, env/flag limits). |
 | `demo` | `run` | Placeholder demo workflow. |
+
+For **buyer** and **seller** commands that call the control HTTP API, **`--control-url` is optional** and defaults to **`http://127.0.0.1:8090`**. If you omit it, the process **prints a warning** and uses that default—set `--control-url` explicitly for non-local or production control panes.
 
 ## Control pane (HTTP API + PostgreSQL)
 
@@ -136,48 +141,69 @@ go run ./cmd/control start --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
 ## Buyer workflow
 
 1. Start PostgreSQL and run **`control api`** with `DATABASE_URL` set.
-2. **Register** a buyer (CLI or HTTP):
+2. **Register** a buyer (CLI or HTTP). You can omit `--control-url` to use the default `http://127.0.0.1:8090` (a warning is logged).
    ```bash
    go run ./cmd/buyer register \
-     --control-url http://127.0.0.1:8090 \
      --name "My Name" \
      --email you@example.com \
      --password 'secure-password'
    ```
-3. **Start the buyer mesh** (HTTP API + libp2p). You must pass credentials so the process can log in to the control pane. **Matchmaking and billing** run on the control API (PostgreSQL); ensure at least one seller is registered, on duty, has models, and has posted **presence** (`peerId` and **listen multiaddrs**) so the control pane can return `sellerPeerId` and **`sellerListenAddrs`** on match (the buyer dials the seller using those addresses).
+3. **Start the buyer mesh** (HTTP API + libp2p). You must pass **email** and **password** so the process can log in to the control pane (same default for `--control-url` as above). **Matchmaking and billing** run on the control API (PostgreSQL); ensure at least one seller is registered, on duty, has models, and has posted **presence** (`peerId` and **listen multiaddrs**) so the control pane can return `sellerPeerId` and **`sellerListenAddrs`** on match (the buyer dials the seller using those addresses).
    ```bash
-   go run ./cmd/knowledgeMesh mesh serve \
-     --control-url http://127.0.0.1:8090 \
+   go run ./cmd/buyer serve \
      --email you@example.com \
      --password 'secure-password'
    ```
    Add **`--bootstrap '/ip4/127.0.0.1/udp/<port>/quic-v1/p2p/<SELLER_PEER_ID>'`** if the seller’s addresses in the control DB are not reachable from this host (for example NAT or a stale listen list). The seller logs a full bootstrap line when it starts.
    The process logs a **session token**; use it as `Authorization: Bearer <token>` or `X-Session-ID: <token>` on the buyer HTTP API below.
 
-   The same flags work for **`go run ./cmd/buyer start`** (equivalent to `knowledgeMesh mesh serve`).
+   The same flags work for **`go run ./cmd/buyer start`** (alias of `serve`).
 
 4. Optional: **one-shot prompt** via CLI (logs in to control, then calls the buyer mesh chat API):
    ```bash
    go run ./cmd/buyer prompt \
-     --control-url http://127.0.0.1:8090 \
      --email you@example.com \
      --password 'secure-password' \
      --api-url http://127.0.0.1:8080 \
      --prompt 'Hello'
    ```
 
-### Flags: `mesh serve` / `buyer start`
+### Flags: `buyer serve` / `buyer start`
 
 | Flag | Purpose |
 |------|---------|
-| `--control-url` | **Required.** Control pane base URL, e.g. `http://127.0.0.1:8090` |
+| `--control-url` | **Optional.** Control pane base URL (default `http://127.0.0.1:8090`). If omitted, a **warning** is logged and the default is used. |
 | `--email` | **Required.** Buyer email (registered on the control pane) |
 | `--password` | **Required.** Buyer password |
 | `--api-addr` | Buyer HTTP API listen address (default `:8080`) |
-| `--p2p-addr` | libp2p QUIC listen multiaddr |
+| `--p2p-addr` | libp2p QUIC listen multiaddr (host also listens on **`/ip4/0.0.0.0/tcp/0`** for TCP fallback) |
+| `--relay` | Optional repeatable **circuit relay v2** multiaddr (must include `/p2p/<relayID>`). Merged with **`LIBP2P_STATIC_RELAYS`**. Built-in default public relays apply on **buyer** and **seller** only when **`--control-url` is omitted** (implicit default); if you pass **`--control-url`**, only env/CLI relays are used (seller: also skips defaults when **`--server-mode`**). |
 | `--bootstrap` | Optional repeatable seller multiaddr. Use when you cannot rely on **`sellerListenAddrs`** from the control pane (same LAN usually works without it once the seller has posted presence). |
+| `--p2p-debug` | Enable verbose P2P diagnostics (NAT reachability, connection type transitions, hole punch attempts/failures). |
+| `--p2p-debug-http` | Optional debug HTTP listen addr (example `127.0.0.1:9091`) exposing JSON connectivity diagnostics. Implies `--p2p-debug`. |
 
-**Local two-terminal sketch:** (1) Run `control api` with PostgreSQL. (2) Register buyer and seller; configure seller models, duty, and (for Ollama) `PUT /v1/control/sellers/me/ollama`; run **`seller serve`** so presence and listen addrs are stored. (3) Run **`mesh serve`** with buyer credentials; add `--bootstrap` only if dialing via stored addresses fails. Inference uses the control pane for **match → tracking → complete** and libp2p QUIC for the model call.
+Environment toggles for debug:
+
+- `KM_P2P_DEBUG` — set `1` / `true` / `yes` / `on` to enable verbose P2P debug logging.
+- `KM_P2P_DEBUG_HTTP` — optional debug HTTP listen addr (for example `127.0.0.1:9091`).
+
+When constructing a host with `NewHostWithConfig`, you can set `HostConfig.EnableP2PDebug` to a non-nil pointer to force debug on or off; it overrides the environment for that process (same as `--p2p-debug` / `--p2p-debug-http` on `buyer serve`, which set this field).
+
+Debug endpoints (when enabled):
+
+- `GET /debug/p2p/peer/<peerID>` — peer connection details, computed connection type, tagged type, last hole punch result.
+- `GET /debug/p2p/reachability` — latest local AutoNAT reachability (`unknown` / `public` / `private`).
+
+Debug CLI example:
+
+```bash
+KM_P2P_DEBUG=1 KM_P2P_DEBUG_HTTP=127.0.0.1:9091 \
+  go run ./cmd/buyer serve --email you@example.com --password '...'
+
+go run ./cmd/buyer p2p-debug-peer <PEER_ID> --http http://127.0.0.1:9091
+```
+
+**Local two-terminal sketch:** (1) Run `control api` with PostgreSQL. (2) Register buyer and seller; configure seller models, duty, and (for Ollama) `PUT /v1/control/sellers/me/ollama`; run **`seller serve`** so presence and listen addrs are stored. (3) Run **`buyer serve`** with buyer credentials; add `--bootstrap` only if dialing via stored addresses fails. Inference uses the control pane for **match → tracking → complete** and libp2p QUIC for the model call.
 
 ## Examples and quick binary check
 
@@ -192,16 +218,156 @@ After `go build -o bin/ ./cmd/...`, smoke-test the main binaries (see [CLI refer
 
 ```bash
 ./bin/knowledgeMesh serve
-./bin/knowledgeMesh mesh serve --control-url http://127.0.0.1:8090 --email you@example.com --password '...'
-./bin/knowledgeMesh mesh serve --control-url http://127.0.0.1:8090 --email you@example.com --password '...' --bootstrap '/ip4/127.0.0.1/udp/4001/quic-v1/p2p/<PEER_ID>'
-./bin/buyer register --control-url http://127.0.0.1:8090 --name 'Me' --email you@example.com --password '...'
-./bin/buyer start --control-url http://127.0.0.1:8090 --email you@example.com --password '...'
-./bin/buyer start --control-url http://127.0.0.1:8090 --email you@example.com --password '...' --bootstrap '/ip4/127.0.0.1/udp/4001/quic-v1/p2p/<PEER_ID>'
-./bin/seller register --control-url http://127.0.0.1:8090 --name 'Seller' --email seller@example.com --password '...'
-./bin/seller serve --control-url http://127.0.0.1:8090 --email seller@example.com --password '...'
+./bin/buyer serve --email you@example.com --password '...'
+./bin/buyer serve --email you@example.com --password '...' --bootstrap '/ip4/127.0.0.1/udp/4001/quic-v1/p2p/<PEER_ID>'
+./bin/buyer register --name 'Me' --email you@example.com --password '...'
+./bin/buyer start --email you@example.com --password '...'
+./bin/buyer start --email you@example.com --password '...' --bootstrap '/ip4/127.0.0.1/udp/4001/quic-v1/p2p/<PEER_ID>'
+./bin/seller register --name 'Seller' --email seller@example.com --password '...'
+./bin/seller serve --email seller@example.com --password '...'
 ./bin/control api
 ./bin/control start
+./bin/relay serve
 ./bin/demo run
+```
+
+## Relay node (circuit relay v2 service)
+
+Run a dedicated relay service process. The relay **peer ID** is stable across restarts when using the same `--identity` file (default `relay-identity.key`):
+
+```bash
+go run ./cmd/relay serve
+go run ./cmd/relay serve --listen-addr /ip4/0.0.0.0/udp/4001/quic-v1
+```
+
+Flags:
+
+| Flag | Purpose |
+|------|---------|
+| `--listen-addr` | libp2p listen multiaddr (default `/ip4/0.0.0.0/udp/4001/quic-v1`) |
+| `--identity` | Path to persisted Ed25519 private key file (default `relay-identity.key` in cwd); same file keeps the relay **peer ID** stable across restarts |
+| `--max-reservations` | Max active relay reservations |
+| `--max-circuits-per-peer` | Max relayed circuits per peer |
+| `--max-bandwidth-per-peer-bytes` | Max relayed bytes per peer circuit window |
+
+Environment overrides:
+
+- `RELAY_LISTEN_ADDR`
+- `RELAY_IDENTITY_FILE` (override identity path; default `relay-identity.key`)
+- `RELAY_MAX_RESERVATIONS`
+- `RELAY_MAX_CIRCUITS_PER_PEER`
+- `RELAY_MAX_BANDWIDTH_PER_PEER_BYTES`
+- `RELAY_CONN_LOW_WATER`
+- `RELAY_CONN_HIGH_WATER`
+- `RELAY_CONN_GRACE_SECONDS`
+- `RELAY_MAX_CIRCUIT_DURATION_SECONDS`
+
+Docker (lightweight service):
+
+```bash
+docker build -f Dockerfile.relay -t knowledgemesh-relay .
+docker run --rm -p 4001:4001/tcp -p 4001:4001/udp knowledgemesh-relay
+```
+
+For a **stable relay peer ID** across container restarts, mount a volume and point the identity file at it (the default `relay-identity.key` is created in the process working directory):
+
+```bash
+docker run --rm -p 4001:4001/tcp -p 4001:4001/udp \
+  -v relay-id:/data \
+  -e RELAY_IDENTITY_FILE=/data/relay-identity.key \
+  knowledgemesh-relay
+```
+
+## Ubuntu systemd services (control API + relay)
+
+If your Ubuntu host does not already have a dedicated service account, create one first:
+
+```bash
+sudo useradd --system --home /var/lib/knowledgemesh --create-home --shell /usr/sbin/nologin knowledgemesh
+```
+
+You can also run services as another existing non-root user by replacing `User=` / `Group=` below.
+
+Build binaries:
+
+```bash
+go build -o /usr/local/bin/knowledgemesh-control ./cmd/control
+go build -o /usr/local/bin/knowledgemesh-relay ./cmd/relay
+```
+
+Control API environment file:
+
+```bash
+sudo mkdir -p /etc/knowledgemesh
+sudo tee /etc/knowledgemesh/control.env >/dev/null <<'EOF'
+DATABASE_URL=postgres://user:pass@127.0.0.1:5432/knowledgemesh?sslmode=disable
+CONTROL_JWT_SECRET=replace-with-a-long-random-secret
+EOF
+sudo chmod 600 /etc/knowledgemesh/control.env
+```
+
+Create relay state dir (for stable peer ID):
+
+```bash
+sudo mkdir -p /var/lib/knowledgemesh/relay
+sudo chown -R knowledgemesh:knowledgemesh /var/lib/knowledgemesh
+```
+
+`/etc/systemd/system/knowledgemesh-control.service`:
+
+```ini
+[Unit]
+Description=knowledgeMesh control pane HTTP API
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=knowledgemesh
+Group=knowledgemesh
+EnvironmentFile=/etc/knowledgemesh/control.env
+ExecStart=/usr/local/bin/knowledgemesh-control api --http-addr :8090
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`/etc/systemd/system/knowledgemesh-relay.service`:
+
+```ini
+[Unit]
+Description=knowledgeMesh relay (circuit relay v2)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=knowledgemesh
+Group=knowledgemesh
+WorkingDirectory=/var/lib/knowledgemesh/relay
+ExecStart=/usr/local/bin/knowledgemesh-relay serve --listen-addr /ip4/0.0.0.0/udp/4001/quic-v1 --identity /var/lib/knowledgemesh/relay/identity.key
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable + start:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now knowledgemesh-control.service
+sudo systemctl enable --now knowledgemesh-relay.service
+```
+
+Inspect logs:
+
+```bash
+sudo journalctl -u knowledgemesh-control.service -f
+sudo journalctl -u knowledgemesh-relay.service -f
 ```
 
 ## Seller
@@ -212,17 +378,19 @@ Register and declare models via the control API (or `seller register`), then run
 
 ```bash
 go run ./cmd/seller register \
-  --control-url http://127.0.0.1:8090 \
   --name "Seller Name" \
   --email seller@example.com \
   --password 'secure-password'
 
 go run ./cmd/seller serve \
-  --control-url http://127.0.0.1:8090 \
   --email seller@example.com \
   --password 'secure-password' \
   --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
 ```
+
+Omitting `--control-url` uses `http://127.0.0.1:8090` and logs a warning; set it explicitly when the control API is not on localhost.
+
+**Optional DHT + bootstrap (NAT / AutoNAT):** if the seller only listens and has no other libp2p peers, AutoNAT v2 may not emit reachability updates quickly. Enable Kademlia DHT and pass at least one reachable bootstrap peer (often your **relay** multiaddr, or any well-connected node): `--p2p-dht` and repeatable `--p2p-bootstrap '/ip4/.../udp/.../quic-v1/p2p/<PEER_ID>'`. Environment equivalents: `KM_P2P_DHT=1`, `LIBP2P_BOOTSTRAP_PEERS` (comma-separated, same format as `--relay` / `LIBP2P_STATIC_RELAYS`). After relay addresses appear in `host.Addrs()`, repost seller presence if buyers still cannot dial.
 
 After **`POST /v1/control/sellers/login`**, configure Ollama (example: map catalog model name `my-chat` to local tag `llama3:latest`):
 
@@ -245,7 +413,7 @@ With **`knowledgeMesh serve`** (mock path, no control pane):
 - `POST /v1/messages` (Anthropic-style)
 - `GET /healthz`
 
-With **`knowledgeMesh mesh serve`** (control pane + real inference):
+With **`buyer serve`** (control pane + real inference):
 
 - `POST /api/v1/buyer/register` — JSON: `name` or `username`, `email`, `password` → `buyerId` (via control pane)
 - `POST /api/v1/buyer/login` — JSON: `user`, `password` → `sessionId`, `buyerId`
@@ -263,21 +431,22 @@ Helpers in `internal/network`: `RegisterRequestHandler`, `SendRequest`, `Connect
 ## Current modules
 
 - `internal/seller` — Anthropic / OpenAI / Ollama facades; `serve` loads profile (models, duty, **Ollama** from PostgreSQL) and posts inference tracking to control
-- `internal/buyer` — session state after control login; CLI commands for `buyer` (`register`, `prompt` in `commands.go`)
+- `internal/buyer` — session state after control login; CLI commands for `buyer` (`register`, `prompt` in `commands.go`; mesh entrypoints live in `cmd/buyer` via `internal/mesh`)
 - `internal/matchmaker` — seller selection by skill, duty, price cap, then price/reputation (used **inside** the control pane for `/buyers/me/inference/match`)
 - `internal/sandbox` — request-scoped runner; **`PassthroughExecutor`** on **`seller serve`**, **`MockExecutor`** for tests/mocks
 - `internal/api` — OpenAI/Anthropic HTTP handlers
 - `internal/mesh` — control client for match/tracking/complete, libp2p inference to matched seller
 - `internal/control` — PostgreSQL (buyers, sellers, models, billing, inference matches), HTTP API (`control api`), golang-migrate SQL in `migrations/`, JWT, outbound client, libp2p handler (`control start`)
-- `internal/network` — QUIC host, stream helpers, bootstrap
+- `internal/network` — libp2p host (**QUIC + TCP**, Noise, Yamux, NAT, **AutoNAT v2**, relay + **AutoRelay**, optional **Kademlia DHT** (`EnableP2PDHT`, `LIBP2P_BOOTSTRAP_PEERS` / `KM_P2P_DHT`), **DCUtR** hole punching, connmgr, ping), plus `HolePunchManager` retries, `ConnectionTypeTracker`, size-aware `MessageRouter`, `NetworkMonitor`, relay→direct upgrade pruning, optional **`km_p2p_*` Prometheus metrics**, and optional P2P connectivity debug utilities (NAT reachability logging, connection path logs, hole punch result snapshots, debug HTTP API); see `HostConfig` / `NewHostWithConfig`, env **`LIBP2P_STATIC_RELAYS`**, **`KM_P2P_PROMETHEUS_EXPORT`**, **`KM_P2P_DEBUG`**, **`KM_P2P_DEBUG_HTTP`**
+- `internal/relay` — minimal circuit relay v2 service (`relay serve`) with reservation/circuit limits and basic relay usage logging
 
 ## Layout
 
-- `cmd/` — thin `main` packages only (`knowledgeMesh`, `buyer`, `seller`, `control`, `demo`)
+- `cmd/` — thin `main` packages only (`knowledgeMesh`, `buyer`, `seller`, `control`, `relay`, `demo`)
 - `internal/` — private logic (`buyer`, `seller`, `control`, `mesh`, `matchmaker`, `network`, `api`, `sandbox`, `policy`, `state`)
 - `pkg/` — shared libraries (`types`, `protocol`, `config`)
 - `ARCHITECTURE.md` — system architecture and inference/billing flow
-- `configs/`, `examples/`, `tests/` — configs, demos, tests
+- `configs/`, `examples/`, `tests/` — configs, demos, tests (`tests/network` exercises libp2p helpers including P2P connectivity debug)
 
 ## Other CLIs
 
