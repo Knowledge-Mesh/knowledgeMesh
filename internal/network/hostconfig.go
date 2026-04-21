@@ -80,14 +80,15 @@ type HostConfig struct {
 }
 
 // DefaultHostConfig builds listen addresses (QUIC + TCP fallback) and loads static relays from
-// LIBP2P_STATIC_RELAYS, bootstrap peers from LIBP2P_BOOTSTRAP_PEERS, and optional DHT from KM_P2P_DHT when set.
+// built-in default public relays plus LIBP2P_STATIC_RELAYS, bootstrap peers from
+// LIBP2P_BOOTSTRAP_PEERS, and optional DHT from KM_P2P_DHT when set.
 func DefaultHostConfig(primaryListen string) HostConfig {
 	if strings.TrimSpace(primaryListen) == "" {
 		primaryListen = DefaultQUICListenAddr
 	}
 	cfg := HostConfig{
 		ListenAddrs:       defaultListenAddrs(primaryListen),
-		StaticRelayAddrs:  staticRelaysFromEnv(),
+		StaticRelayAddrs:  mergedStaticRelayAddrs(),
 		P2PBootstrapPeers: bootstrapPeersFromEnv(),
 		EnableP2PDHT:      parseP2PDHTFromEnv(),
 	}
@@ -157,6 +158,43 @@ func staticRelaysFromEnv() []string {
 		if p != "" {
 			out = append(out, p)
 		}
+	}
+	return out
+}
+
+// StaticRelaysFromEnv returns relay multiaddrs configured via LIBP2P_STATIC_RELAYS.
+// It returns a copy so callers can safely mutate the result.
+func StaticRelaysFromEnv() []string {
+	out := staticRelaysFromEnv()
+	cp := make([]string, len(out))
+	copy(cp, out)
+	return cp
+}
+
+func mergedStaticRelayAddrs() []string {
+	seen := make(map[string]struct{})
+	out := make([]string, 0)
+	for _, s := range defaultStaticRelayAddrs() {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	for _, s := range staticRelaysFromEnv() {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
 	}
 	return out
 }

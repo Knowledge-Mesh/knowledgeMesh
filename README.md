@@ -177,7 +177,7 @@ go run ./cmd/control start --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
 | `--password` | **Required.** Buyer password |
 | `--api-addr` | Buyer HTTP API listen address (default `:8080`) |
 | `--p2p-addr` | libp2p QUIC listen multiaddr (host also listens on **`/ip4/0.0.0.0/tcp/0`** for TCP fallback) |
-| `--relay` | Optional repeatable **circuit relay v2** multiaddr (must include `/p2p/<relayID>`). Merged with **`LIBP2P_STATIC_RELAYS`** for AutoRelay (NAT / CGNAT). |
+| `--relay` | Optional repeatable **circuit relay v2** multiaddr (must include `/p2p/<relayID>`). Merged with **`LIBP2P_STATIC_RELAYS`**. Built-in default public relays apply on **buyer** and **seller** only when **`--control-url` is omitted** (implicit default); if you pass **`--control-url`**, only env/CLI relays are used (seller: also skips defaults when **`--server-mode`**). |
 | `--bootstrap` | Optional repeatable seller multiaddr. Use when you cannot rely on **`sellerListenAddrs`** from the control pane (same LAN usually works without it once the seller has posted presence). |
 | `--p2p-debug` | Enable verbose P2P diagnostics (NAT reachability, connection type transitions, hole punch attempts/failures). |
 | `--p2p-debug-http` | Optional debug HTTP listen addr (example `127.0.0.1:9091`) exposing JSON connectivity diagnostics. Implies `--p2p-debug`. |

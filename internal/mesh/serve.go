@@ -75,6 +75,10 @@ Use the printed session token as Authorization: Bearer or X-Session-ID for /v1/c
 			cfg := network.DefaultHostConfig(p2pAddr)
 			cfg.Identity = priv
 			cfg.ServerMode = serverMode
+			if !usedDef {
+				// User passed --control-url: omit built-in default relays; use only LIBP2P_STATIC_RELAYS and --relay.
+				cfg.StaticRelayAddrs = network.StaticRelaysFromEnv()
+			}
 			cfg.MergeStaticRelays(relays)
 			if p2pDebug || strings.TrimSpace(p2pDebugHTTP) != "" {
 				v := true
@@ -131,7 +135,7 @@ Use the printed session token as Authorization: Bearer or X-Session-ID for /v1/c
 	cmd.Flags().StringVar(&apiAddr, "api-addr", ":8080", "HTTP API listen address")
 	cmd.Flags().StringVar(&p2pAddr, "p2p-addr", network.DefaultQUICListenAddr, "libp2p QUIC listen multiaddr")
 	cmd.Flags().StringArrayVar(&bootstrap, "bootstrap", nil, "Bootstrap peer multiaddr (repeatable), e.g. /ip4/127.0.0.1/udp/4001/quic-v1/p2p/<PeerID>")
-	cmd.Flags().StringArrayVar(&relays, "relay", nil, "Circuit relay v2 multiaddr with /p2p/<relayID> (repeatable); merged with LIBP2P_STATIC_RELAYS for AutoRelay")
+	cmd.Flags().StringArrayVar(&relays, "relay", nil, "Circuit relay v2 multiaddr with /p2p/<relayID> (repeatable); merged with LIBP2P_STATIC_RELAYS; built-in default relays only when --control-url is omitted (default control pane)")
 	cmd.Flags().StringVar(&controlURL, "control-url", "", "Control pane base URL (optional; default "+control.DefaultControlURL+")")
 	cmd.Flags().StringVar(&email, "email", "", "Buyer email for control pane login (required)")
 	cmd.Flags().StringVar(&password, "password", "", "Buyer password for control pane login (required)")

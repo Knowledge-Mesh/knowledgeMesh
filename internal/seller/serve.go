@@ -71,6 +71,10 @@ func NewServeCommand() *cobra.Command {
 			cfg := network.DefaultHostConfig(p2pAddr)
 			cfg.Identity = priv
 			cfg.ServerMode = serverMode
+			if serverMode || !usedDef {
+				// Server mode or explicit --control-url: omit built-in default relays; use only LIBP2P_STATIC_RELAYS and --relay.
+				cfg.StaticRelayAddrs = network.StaticRelaysFromEnv()
+			}
 			cfg.MergeStaticRelays(relays)
 			cfg.MergeP2PBootstrapPeers(bootstrap)
 			if p2pDHT {
@@ -147,7 +151,7 @@ func NewServeCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&p2pAddr, "p2p-addr", network.DefaultQUICListenAddr, "libp2p QUIC listen multiaddr (TCP /ip4/0.0.0.0/tcp/0 is added automatically)")
-	cmd.Flags().StringArrayVar(&relays, "relay", nil, "Circuit relay v2 multiaddr with /p2p/<relayID> (repeatable); merged with LIBP2P_STATIC_RELAYS")
+	cmd.Flags().StringArrayVar(&relays, "relay", nil, "Circuit relay v2 multiaddr with /p2p/<relayID> (repeatable); merged with LIBP2P_STATIC_RELAYS; built-in default relays only when --control-url is omitted and not --server-mode")
 	cmd.Flags().StringArrayVar(&bootstrap, "p2p-bootstrap", nil, "Bootstrap peer multiaddr with /p2p/<peerID> (repeatable); merged with LIBP2P_BOOTSTRAP_PEERS; use with --p2p-dht for AutoNAT reachability")
 	cmd.Flags().BoolVar(&p2pDHT, "p2p-dht", false, "Enable Kademlia DHT (ModeAuto) for peer discovery and AutoNAT v2 probes; also set KM_P2P_DHT=1 or bootstrap peers via env")
 	cmd.Flags().StringVar(&controlURL, "control-url", "", "Control pane base URL (optional; default "+control.DefaultControlURL+")")
