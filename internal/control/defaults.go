@@ -6,7 +6,7 @@ import (
 )
 
 // DefaultControlURL is used when --control-url is omitted (typical local control API).
-const DefaultControlURL = "http://127.0.0.1:8090"
+const DefaultControlURL = "http://control.p2pinfer.cloud:8090"
 
 // ResolveControlURL returns a non-empty base URL: trimmed url, or DefaultControlURL if url is empty.
 // usedDefault is true when the caller did not pass a URL and the default was applied.

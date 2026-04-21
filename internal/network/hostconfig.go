@@ -334,7 +334,7 @@ func libp2pOptions(ctx context.Context, cfg HostConfig, kadPtr **dht.IpfsDHT) ([
 		// AutoRelay: advertises relay addresses when behind NAT; static relays avoid discovery dependency.
 		libp2p.EnableAutoRelayWithStaticRelays(relayInfos, autorelay.WithBootDelay(0),
 			autorelay.WithMinCandidates(1),
-			autorelay.WithNumRelays(1),
+			autorelay.WithNumRelays(4),
 			autorelay.WithMaxCandidates(10),
 			autorelay.WithBackoff(5*time.Second)),
 

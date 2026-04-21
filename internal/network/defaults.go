@@ -3,11 +3,8 @@ package network
 // defaultRelayAddrs is the built-in static relay/bootstrap candidate set used when callers do not
 // provide relays via env/CLI. Keep these as full multiaddrs with /p2p/<peerID>.
 var defaultRelayAddrs = []string{
-	"/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
-	"/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
-	"/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
-	"/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
-	"/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
+	"/dnsaddr/relay.p2pinfer.cloud/udp/4001/quic-v1/p2p/12D3KooWCyQ1Tug72SEpoCEf2daaAXa9AZgHXochzHWCcxEvVca8",
+	"/dnsaddr/relay.p2pinfer.cloud/tcp/4001/p2p/12D3KooWCyQ1Tug72SEpoCEf2daaAXa9AZgHXochzHWCcxEvVca8",
 }
 
 // defaultStaticRelayAddrs returns the built-in default relay set.
