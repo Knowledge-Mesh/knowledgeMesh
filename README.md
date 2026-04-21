@@ -278,6 +278,98 @@ docker run --rm -p 4001:4001/tcp -p 4001:4001/udp \
   knowledgemesh-relay
 ```
 
+## Ubuntu systemd services (control API + relay)
+
+If your Ubuntu host does not already have a dedicated service account, create one first:
+
+```bash
+sudo useradd --system --home /var/lib/knowledgemesh --create-home --shell /usr/sbin/nologin knowledgemesh
+```
+
+You can also run services as another existing non-root user by replacing `User=` / `Group=` below.
+
+Build binaries:
+
+```bash
+go build -o /usr/local/bin/knowledgemesh-control ./cmd/control
+go build -o /usr/local/bin/knowledgemesh-relay ./cmd/relay
+```
+
+Control API environment file:
+
+```bash
+sudo mkdir -p /etc/knowledgemesh
+sudo tee /etc/knowledgemesh/control.env >/dev/null <<'EOF'
+DATABASE_URL=postgres://user:pass@127.0.0.1:5432/knowledgemesh?sslmode=disable
+CONTROL_JWT_SECRET=replace-with-a-long-random-secret
+EOF
+sudo chmod 600 /etc/knowledgemesh/control.env
+```
+
+Create relay state dir (for stable peer ID):
+
+```bash
+sudo mkdir -p /var/lib/knowledgemesh/relay
+sudo chown -R knowledgemesh:knowledgemesh /var/lib/knowledgemesh
+```
+
+`/etc/systemd/system/knowledgemesh-control.service`:
+
+```ini
+[Unit]
+Description=knowledgeMesh control pane HTTP API
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=knowledgemesh
+Group=knowledgemesh
+EnvironmentFile=/etc/knowledgemesh/control.env
+ExecStart=/usr/local/bin/knowledgemesh-control api --http-addr :8090
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`/etc/systemd/system/knowledgemesh-relay.service`:
+
+```ini
+[Unit]
+Description=knowledgeMesh relay (circuit relay v2)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=knowledgemesh
+Group=knowledgemesh
+WorkingDirectory=/var/lib/knowledgemesh/relay
+ExecStart=/usr/local/bin/knowledgemesh-relay serve --listen-addr /ip4/0.0.0.0/udp/4001/quic-v1 --identity /var/lib/knowledgemesh/relay/identity.key
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable + start:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now knowledgemesh-control.service
+sudo systemctl enable --now knowledgemesh-relay.service
+```
+
+Inspect logs:
+
+```bash
+sudo journalctl -u knowledgemesh-control.service -f
+sudo journalctl -u knowledgemesh-relay.service -f
+```
+
 ## Seller
 
 ### Control pane (recommended for mesh integration)

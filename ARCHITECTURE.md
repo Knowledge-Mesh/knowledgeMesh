@@ -227,7 +227,11 @@ JWTs distinguish **buyer** vs **seller** subjects so tokens are not interchangea
 2. **Buyer** registered (`POST /v1/control/buyers/register` or `buyer register`).
 3. **Seller** registered, models declared, **on duty**, and **presence** posted so PostgreSQL has a routable libp2p peer id.
 4. **Buyer mesh** (`buyer serve`) logged in to control; **seller** (`seller serve`) logged in to control.
-5. Buyer mesh process started with relay addresses (`--relay` and/or `LIBP2P_STATIC_RELAYS`) and optional `--bootstrap` so it can reach the seller via direct or relay path.
+5. Buyer mesh process started with relay reachability configured:
+   - always supports `--relay` and `LIBP2P_STATIC_RELAYS`,
+   - uses built-in default relays only when `--control-url` is omitted,
+   - seller `--server-mode` also skips built-in defaults,
+   - optional `--bootstrap` can be added for explicit peer dials.
 
 ### 2. Sequence (happy path)
 
