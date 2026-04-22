@@ -30,6 +30,40 @@ That produces one binary per `cmd/*` package (for example `bin/knowledgeMesh`, `
 
 Examples below use `go run ./cmd/...`; after building, run the same flags on `./bin/<name>`.
 
+## Seller onboarding (Ollama)
+
+**Prerequisites:** PostgreSQL + **`control api`** running (default `http://127.0.0.1:8090`; see [Control pane](#control-pane-http-api--postgresql)). [Ollama](https://ollama.com) listening on `http://127.0.0.1:11434` with a model pulled (example: `ollama pull llama3`).
+
+```bash
+# 1. Register the seller account
+go run ./cmd/seller register \
+  --name "Demo Seller" \
+  --email seller@example.com \
+  --password 'your-password'
+
+# 2. One model + Ollama mapping + on-duty (catalog skill "my-chat" → Ollama tag "llama3:latest")
+go run ./cmd/seller setup \
+  --email seller@example.com \
+  --password 'your-password' \
+  --model-id my-chat \
+  --rate-per-token 0.000001 \
+  --ollama-base-url http://127.0.0.1:11434 \
+  --ollama-map my-chat=llama3:latest
+
+# 3. Verify profile
+go run ./cmd/seller status --email seller@example.com --password 'your-password'
+
+# 4. Toggle duty when needed
+go run ./cmd/seller duty on --email seller@example.com --password 'your-password'
+go run ./cmd/seller duty off --email seller@example.com --password 'your-password'
+
+# 5. Start the seller node (libp2p + inference)
+go run ./cmd/seller serve --email seller@example.com --password 'your-password'
+# optional: --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
+```
+
+Use `--control-url https://your-control.example` on each command if the control API is not on localhost.
+
 ## CLI reference
 
 Commands are split by binary: **`knowledgeMesh`** is the sandbox/mock buyer API only; **buyer** carries the real mesh (control login, libp2p, matchmaking). Dedicated **`seller`**, **`control`**, **`relay`**, and **`demo`** binaries cover the rest. The `knowledgeMesh serve` command is implemented in `internal/sandbox` (mock API path).
@@ -42,11 +76,15 @@ Commands are split by binary: **`knowledgeMesh`** is the sandbox/mock buyer API 
 | `buyer` | `register` | Register a buyer on the control pane (`--name`, `--email`, `--password`; `--control-url` optional, see below). |
 | `buyer` | `prompt` | Log in to control and send one `POST /v1/chat/completions` to a buyer API (`--api-url`, `--prompt`, …). |
 | `seller` | `register` | Register a seller on the control pane (`--name`, `--email`, `--password`; `--control-url` optional, see below). |
+| `seller` | `setup` | One-step seller setup after registration: login, set one model (+ optional Ollama mapping), and set on-duty. |
+| `seller` | `status` | Show seller profile status from control pane (on-duty, model count, peer id, Ollama configured). |
+| `seller` | `duty on/off` | Toggle seller duty state using control pane auth. |
 | `seller` | `serve` | QUIC listener + inference; requires `--email`, `--password`; `--control-url` optional (default `http://127.0.0.1:8090`). Optional `--p2p-addr`. Model backend (e.g. **Ollama**) from control API — see [Seller](#seller). |
 | `control` | `api` | HTTP control pane + PostgreSQL (`DATABASE_URL`, `--http-addr`, `--jwt-secret`). |
 | `control` | `start` | libp2p control protocol node (`/knowledgemesh/control/1.0.0`), optional `--p2p-addr`. |
 | `relay` | `serve` | Minimal stateless **circuit relay v2 service** (accepts reservations, relayed connections, env/flag limits). |
 | `demo` | `run` | Placeholder demo workflow. |
+
 
 For **buyer** and **seller** commands that call the control HTTP API, **`--control-url` is optional** and defaults to **`http://127.0.0.1:8090`**. If you omit it, the process **prints a warning** and uses that default—set `--control-url` explicitly for non-local or production control panes.
 
@@ -374,7 +412,16 @@ sudo journalctl -u knowledgemesh-relay.service -f
 
 ### Control pane (recommended for mesh integration)
 
-Register and declare models via the control API (or `seller register`), then run the inference node with control login so PostgreSQL drives duty, models, and presence:
+Start with the copy-paste flow in [Seller onboarding (Ollama)](#seller-onboarding-ollama) above. Add `--p2p-addr` on `seller serve` if you need a fixed listen address.
+
+Duty toggles:
+
+```bash
+go run ./cmd/seller duty on --email seller@example.com --password 'secure-password'
+go run ./cmd/seller duty off --email seller@example.com --password 'secure-password'
+```
+
+Manual/API-first path (advanced): register and declare models via the control API (or `seller register`), then run the inference node with control login so PostgreSQL drives duty, models, and presence:
 
 ```bash
 go run ./cmd/seller register \

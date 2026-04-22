@@ -12,7 +12,13 @@ func main() {
 		Use:   "seller",
 		Short: "Seller module CLI",
 	}
-	root.AddCommand(seller.NewControlRegisterCommand(), seller.NewServeCommand())
+	root.AddCommand(
+		seller.NewControlRegisterCommand(),
+		seller.NewControlSetupCommand(),
+		seller.NewControlStatusCommand(),
+		seller.NewControlDutyCommand(),
+		seller.NewServeCommand(),
+	)
 
 	if err := root.Execute(); err != nil {
 		log.Fatal(err)
