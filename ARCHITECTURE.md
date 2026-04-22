@@ -197,7 +197,7 @@ flowchart LR
 |--------|----------------|--------|
 | `knowledgeMesh` | `serve` | `cmd/knowledgeMesh` → `internal/sandbox` (mock buyer API) |
 | `buyer` | `serve`, `start`, `p2p-debug-peer`, `register`, `prompt` | `cmd/buyer` → `internal/mesh`, `internal/buyer` |
-| `seller` | `register`, `serve` | `cmd/seller` → `internal/seller`, `internal/control` client |
+| `seller` | `register`, `setup`, `status`, `duty on/off`, `serve` | `cmd/seller` → `internal/seller`, `internal/control` client |
 | `control` | `api`, `start` | `cmd/control` → `internal/control` HTTP server or libp2p control protocol |
 | `relay` | `serve` | `cmd/relay` → `internal/relay` (circuit relay v2 service) |
 | `demo` | `run` | placeholder |
