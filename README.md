@@ -62,7 +62,33 @@ go run ./cmd/seller serve --email seller@example.com --password 'your-password'
 # optional: --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
 ```
 
-Use `--control-url https://your-control.example` on each command if the control API is not on localhost.
+Use `--control-url https://your-control.example` on each command if you have your own control API host.
+
+## Buyer onboarding (Ollama)
+
+Use this after completing [Seller onboarding (Ollama)](#seller-onboarding-ollama) so a seller is on-duty and serving.
+
+```bash
+# 1. Register buyer account
+go run ./cmd/buyer register \
+  --name "Demo Buyer" \
+  --email buyer@example.com \
+  --password 'your-password'
+
+# 2. Start buyer mesh API + libp2p node
+go run ./cmd/buyer serve \
+  --email buyer@example.com \
+  --password 'your-password'
+
+# 3. Send one test prompt through buyer API (matched to seller's Ollama model)
+go run ./cmd/buyer prompt \
+  --email buyer@example.com \
+  --password 'your-password' \
+  --api-url http://127.0.0.1:8080 \
+  --prompt 'Write a short haiku about distributed systems.'
+```
+
+Use `--control-url https://your-control.example` on each command when the control API is remote.
 
 ## CLI reference
 
@@ -178,15 +204,18 @@ go run ./cmd/control start --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
 
 ## Buyer workflow
 
+Quick start is documented in [Buyer onboarding (Ollama)](#buyer-onboarding-ollama). Use the detailed notes below when you need explicit networking and API behavior.
+
 1. Start PostgreSQL and run **`control api`** with `DATABASE_URL` set.
-2. **Register** a buyer (CLI or HTTP). You can omit `--control-url` to use the default `http://127.0.0.1:8090` (a warning is logged).
+2. Ensure seller onboarding is complete and at least one seller is on-duty and running (**`seller serve`**), with Ollama mapping configured (example: `my-chat -> llama3:latest`).
+3. **Register** a buyer (CLI or HTTP). You can omit `--control-url` to use the default `http://127.0.0.1:8090` (a warning is logged).
    ```bash
    go run ./cmd/buyer register \
      --name "My Name" \
      --email you@example.com \
      --password 'secure-password'
    ```
-3. **Start the buyer mesh** (HTTP API + libp2p). You must pass **email** and **password** so the process can log in to the control pane (same default for `--control-url` as above). **Matchmaking and billing** run on the control API (PostgreSQL); ensure at least one seller is registered, on duty, has models, and has posted **presence** (`peerId` and **listen multiaddrs**) so the control pane can return `sellerPeerId` and **`sellerListenAddrs`** on match (the buyer dials the seller using those addresses).
+4. **Start the buyer mesh** (HTTP API + libp2p). You must pass **email** and **password** so the process can log in to the control pane (same default for `--control-url` as above). Matchmaking and billing run on the control API (PostgreSQL).
    ```bash
    go run ./cmd/buyer serve \
      --email you@example.com \
@@ -197,7 +226,7 @@ go run ./cmd/control start --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
 
    The same flags work for **`go run ./cmd/buyer start`** (alias of `serve`).
 
-4. Optional: **one-shot prompt** via CLI (logs in to control, then calls the buyer mesh chat API):
+5. Optional: **one-shot prompt** via CLI (logs in to control, then calls the buyer mesh chat API):
    ```bash
    go run ./cmd/buyer prompt \
      --email you@example.com \
