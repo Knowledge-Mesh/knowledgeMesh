@@ -85,6 +85,7 @@ Commands are split by binary: **`knowledgeMesh`** is the sandbox/mock buyer API 
 | `relay` | `serve` | Minimal stateless **circuit relay v2 service** (accepts reservations, relayed connections, env/flag limits). |
 | `demo` | `run` | Placeholder demo workflow. |
 
+
 For **buyer** and **seller** commands that call the control HTTP API, **`--control-url` is optional** and defaults to **`http://127.0.0.1:8090`**. If you omit it, the process **prints a warning** and uses that default—set `--control-url` explicitly for non-local or production control panes.
 
 ## Control pane (HTTP API + PostgreSQL)
