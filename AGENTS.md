@@ -12,24 +12,26 @@ Before running any commands, ask the user **exactly one question** and wait for 
 
 > I see this is **knowledgeMesh** — a marketplace-style mesh for AI inference (buyer ↔ control pane ↔ seller, over a libp2p QUIC overlay). I can set this up three ways. Pick one:
 >
-> **(1) Connect as a buyer with defaults** — fastest path. Spins up a mock buyer HTTP API on `localhost:8080`. No Postgres, no Ollama, no seller needed. Good for testing the OpenAI/Anthropic-style API surface end-to-end without external dependencies.
+> **(1) Connect as a buyer with defaults — hosted public mesh** — fastest path to *real* inference. Registers a buyer account on the hosted control pane at `http://control.p2pinfer.cloud:8090` and runs a prompt against whichever seller is currently on duty there. Needs only outbound internet. ~2 min.
 >
-> **(2) Connect as a seller with defaults** — registers a seller account against an existing control pane and exposes a local Ollama model. Requires Ollama running locally and a control API to register against (your own, or someone else's URL).
+> **(2) Connect as a seller with defaults — hosted public mesh** — registers a seller account on `http://control.p2pinfer.cloud:8090` and exposes your local Ollama model to public traffic. Requires Ollama running locally. ~5 min.
 >
-> **(3) Help me set up my own mesh** — full local stack: PostgreSQL → control API → relay (optional) → seller → buyer, with an end-to-end smoke test at the end. Most work, full functionality.
+> **(3) Help me set up my own mesh** — full local stack: PostgreSQL → control API → relay (optional) → seller → buyer, with an end-to-end smoke test. No dependence on the public mesh. ~15–20 min.
 
 After the user answers `1`, `2`, or `3`, jump to the matching path below. Do not proceed without their answer. If they describe a different scenario (e.g. "I just want to read the code"), default to summarising the architecture from [ARCHITECTURE.md](./ARCHITECTURE.md) and ask again.
 
 ## Decision matrix
 
-| | (1) Buyer w/ defaults | (2) Seller w/ defaults | (3) Own mesh |
+| | (1) Buyer → hosted mesh | (2) Seller → hosted mesh | (3) Own mesh |
 |---|---|---|---|
 | Wall-clock | ~2 min | ~5 min | ~15–20 min |
-| External deps | none | Ollama + reachable control API | Postgres + Ollama (+ optional Docker) |
-| Long-running processes | 1 | 1 | 3–4 |
-| What runs | `cmd/knowledgeMesh` (mock) | `cmd/seller serve` | `control api` + `seller serve` + `buyer serve` (+ optional `relay serve`) |
-| What this verifies | OpenAI / Anthropic API surface, libp2p host bring-up | seller registration, Ollama wiring, presence | full match → inference → settlement loop |
-| Touches Postgres? | no | no | yes (migrations auto-apply) |
+| External deps | outbound internet | Ollama + outbound internet | Postgres + Ollama (+ optional Docker) |
+| Control plane | `http://control.p2pinfer.cloud:8090` (shared, public) | `http://control.p2pinfer.cloud:8090` (shared, public) | `http://127.0.0.1:8090` (local, private) |
+| Long-running processes | 1 (`buyer serve`) | 1 (`seller serve`) | 3–4 |
+| What this verifies | end-to-end real inference against a public seller | seller registration + Ollama wiring + public presence | full local match → inference → settlement loop |
+| Real LLM output? | yes (whatever the on-duty public seller is serving) | yes (your own Ollama answering public traffic) | yes (your own Ollama answering your own buyer) |
+| Touches Postgres? | no (uses hosted DB) | no (uses hosted DB) | yes — local DB, migrations auto-apply |
+| Privacy | your prompts traverse a public control pane | your model serves arbitrary public buyers | fully local |
 
 ---
 
@@ -55,70 +57,112 @@ If `go version` is older than 1.24.6, install via the user's preferred method (`
 
 ---
 
-## Path 1 — Buyer with defaults (mock sandbox)
+## Path 1 — Buyer with defaults (hosted public mesh)
 
-**Goal:** working buyer HTTP API on `localhost:8080` with mock inference, in a single command. Zero external dependencies.
+**Goal:** working buyer + a real LLM completion against a public seller in ~2 minutes, with no local Postgres, Ollama, or seller process.
 
-**Questions to ask the user:** none. Defaults work.
+The buyer registers on the hosted control plane at `http://control.p2pinfer.cloud:8090` (the value baked into [`internal/control/defaults.go`](./internal/control/defaults.go) — used whenever `--control-url` is omitted), gets matched to whichever seller is on duty in the public mesh, and runs a real prompt over libp2p QUIC.
 
-**Run (foreground, in its own terminal or as a background process):**
+**Questions to ask the user (collect all before running):**
+
+| # | Question | Default |
+|---|---|---|
+| 1 | Buyer email | `buyer-<8-char-random>@example.com` (avoid collisions on the shared DB) |
+| 2 | Buyer password | generate a 24-char random password and surface it back to the user — they will need it to re-`serve` later |
+| 3 | Buyer display name | `Demo Buyer` |
+
+**Confirm the public control plane is reachable before running anything:**
+
+```bash
+curl -s http://control.p2pinfer.cloud:8090/healthz
+# expect: {"module":"control","status":"ok"}
+```
+
+If that curl fails, fall back to the **offline alternative** below.
+
+**Run (substitute the values you collected):**
+
+```bash
+# 1. Register on the public control pane.
+go run ./cmd/buyer register \
+  --name "<NAME>" \
+  --email <EMAIL> \
+  --password '<PASSWORD>'
+# --control-url is omitted intentionally; code applies the public default
+# and prints "warning: no --control-url specified; using default ..." — that warning is expected.
+
+# 2. Start the buyer mesh process (foreground or background).
+go run ./cmd/buyer serve \
+  --email <EMAIL> \
+  --password '<PASSWORD>'
+# Logs include a session token line like "session: <opaque>" — capture it; the buyer HTTP API requires it.
+
+# 3. In another terminal, send a real prompt.
+go run ./cmd/buyer prompt \
+  --email <EMAIL> \
+  --password '<PASSWORD>' \
+  --api-url http://127.0.0.1:8080 \
+  --prompt 'Write a short haiku about distributed systems.'
+```
+
+**Success criteria:**
+- `register` returns 200 with a `buyerId`.
+- `serve` brings up a libp2p host, logs the session token, and stays running.
+- `prompt` returns a non-empty completion. The text is whatever the on-duty public seller's model produces (real LLM output, not mock).
+
+**Failure modes:**
+| Symptom | Cause / fix |
+|---|---|
+| `connection refused` / DNS error to `control.p2pinfer.cloud` | network/firewall blocks outbound HTTP to port 8090 — fall back to the offline alternative below |
+| `email already registered` | another agent or run used this email — pick a fresh one or skip `register` and just `serve` + `prompt` if you have the password |
+| `no eligible sellers` from `/inference/match` | no seller is on duty in the public mesh right now — the user can run **Path 2** to put their own seller up, or use **Path 3** for a fully local mesh, or simply retry later |
+| `dial timeout` on libp2p / inference stream | NAT or relay issue dialing the matched seller's listen addresses — see [Advanced § NAT, relay, and bootstrap](#nat-relay-and-bootstrap); often resolved by passing `--relay` or by retrying |
+| HTTP 402 from `/inference/match` | wallet / quota check failed on the public DB; surface the message to the user |
+
+**Privacy note to surface to the user before running:** the prompt text and any model metadata pass through the hosted control pane and a third-party seller. Do not send sensitive data on Path 1.
+
+### Offline alternative — mock sandbox (no internet, no real inference)
+
+If the public control plane is unreachable (offline, firewall, outage) and the user just wants to exercise the buyer HTTP API surface, run the mock sandbox instead — zero deps, fake completions, never touches the public mesh:
 
 ```bash
 go run ./cmd/knowledgeMesh serve
-# or with explicit flags:
-go run ./cmd/knowledgeMesh serve --api-addr :8080 --p2p-addr /ip4/0.0.0.0/udp/0/quic-v1
-```
-
-**Verify in a second terminal:**
-
-```bash
+# in another terminal:
 curl -s http://127.0.0.1:8080/healthz
-curl -s http://127.0.0.1:8080/v1/models | head
 curl -s -X POST http://127.0.0.1:8080/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{"model":"kmg-mock-1","messages":[{"role":"user","content":"hello"}]}'
 ```
 
-**Success criteria:**
-- `/healthz` returns HTTP 200.
-- `/v1/chat/completions` returns a JSON body with `choices[0].message.content` populated (mock content).
-
-**What this does and doesn't exercise:**
-- ✅ HTTP API surface (`internal/api`)
-- ✅ Sandbox runner (`internal/sandbox`) with `MockExecutor`
-- ✅ libp2p host bring-up (no peers required)
-- ❌ Control pane / Postgres / billing
-- ❌ Real inference (no Ollama call)
-- ❌ Seller side / matchmaking
-
-**Failure modes:**
-| Symptom | Fix |
-|---|---|
-| `bind: address already in use` | rerun with `--api-addr :PORT` (and a free port) |
-| `go: cannot find module` | rerun `go mod download` |
-| `go: requires Go 1.24.6` | install Go ≥ 1.24.6 (see Prerequisites) |
-
-When the user is done, kill the process. Nothing persists; no cleanup needed.
+This exercises `internal/api` + `internal/sandbox` only — no control pane, no real LLM. Useful for offline dev and for verifying the OpenAI/Anthropic-shaped API contract.
 
 ---
 
-## Path 2 — Seller with defaults
+## Path 2 — Seller with defaults (hosted public mesh)
 
-**Goal:** register a seller account against a control pane, configure Ollama mapping, and serve.
+**Goal:** register a seller on the hosted control plane at `http://control.p2pinfer.cloud:8090`, expose your local Ollama model to the public mesh, and start serving real buyer traffic.
 
 **Questions to ask the user (collect all before running):**
 
-| # | Question | Default if user says "use defaults" |
+| # | Question | Default |
 |---|---|---|
-| 1 | Control API URL? | `http://127.0.0.1:8090` (only correct if a local control API is running — if not, suggest Path 3 first) |
-| 2 | Seller email | `seller@example.com` |
-| 3 | Seller password | generate a 24-char random password and surface it to the user |
-| 4 | Catalog model id | `my-chat` |
-| 5 | Ollama tag to expose | `llama3:latest` |
-| 6 | Ollama base URL | `http://127.0.0.1:11434` |
-| 7 | Rate per token | `0.000001` |
+| 1 | Control API URL | omit (uses hosted public default `http://control.p2pinfer.cloud:8090`); pass `--control-url http://127.0.0.1:8090` if you want a local control pane instead — see Path 3 |
+| 2 | Seller email | `seller-<8-char-random>@example.com` |
+| 3 | Seller password | generate a 24-char random password and surface it back to the user |
+| 4 | Seller display name | `Demo Seller` |
+| 5 | Catalog model id | `my-chat` |
+| 6 | Ollama tag to expose | `llama3:latest` |
+| 7 | Ollama base URL | `http://127.0.0.1:11434` |
+| 8 | Rate per token | `0.000001` |
 
-If the user picks Path 2 but no control API is reachable, fall back to Path 3 and surface the change.
+**Privacy / safety to surface to the user before running:** registering a seller on the public mesh means **arbitrary public buyers can route prompts to your local Ollama instance** as long as you are on duty. Stop the seller (or `seller duty off`) when you are done.
+
+**Confirm the public control plane is reachable:**
+
+```bash
+curl -s http://control.p2pinfer.cloud:8090/healthz
+# expect: {"module":"control","status":"ok"}
+```
 
 **Confirm Ollama is running and the model is pulled:**
 
@@ -127,17 +171,15 @@ curl -s http://127.0.0.1:11434/api/tags
 ollama pull llama3    # only if the tag isn't already present
 ```
 
-**Run (substitute placeholder `<...>` with answers from the table above):**
+**Run (substitute the values you collected; omit `--control-url` to use the hosted public default):**
 
 ```bash
 go run ./cmd/seller register \
-  --control-url <CONTROL_URL> \
-  --name "Demo Seller" \
+  --name "<NAME>" \
   --email <EMAIL> \
   --password '<PASSWORD>'
 
 go run ./cmd/seller setup \
-  --control-url <CONTROL_URL> \
   --email <EMAIL> \
   --password '<PASSWORD>' \
   --model-id <MODEL_ID> \
@@ -146,15 +188,15 @@ go run ./cmd/seller setup \
   --ollama-map <MODEL_ID>=<OLLAMA_TAG>
 
 go run ./cmd/seller status \
-  --control-url <CONTROL_URL> \
   --email <EMAIL> \
   --password '<PASSWORD>'
 
 go run ./cmd/seller serve \
-  --control-url <CONTROL_URL> \
   --email <EMAIL> \
   --password '<PASSWORD>'
 ```
+
+> Each command will log `warning: no --control-url specified; using default http://control.p2pinfer.cloud:8090`. That warning is expected and confirms you are on the public mesh. Pass `--control-url http://127.0.0.1:8090` (or whatever local URL) on every command to switch to a private control plane instead.
 
 **Success criteria:**
 - `seller status` output includes `onDuty: true` and at least one model.
@@ -163,18 +205,20 @@ go run ./cmd/seller serve \
 **Failure modes:**
 | Symptom | Fix |
 |---|---|
-| `connection refused` to control URL | confirm the control API is up; if there is no control API, suggest Path 3 |
+| `connection refused` / DNS error to `control.p2pinfer.cloud` | network / firewall blocks outbound HTTP — switch to Path 3 with a local control pane |
 | `ollama: connection refused` | start Ollama (`ollama serve`) |
 | `model "<tag>" not found` | `ollama pull <tag>` |
-| `seller already registered` | skip `register`, proceed to `setup` |
-| `seller serve` exits with `failed to login` | re-check email/password; if the user changed Ollama config since last serve, restart `serve` |
+| `email already registered` | skip `register`; proceed to `setup` (requires the original password) |
+| `seller serve` exits with `failed to login` | re-check email/password; if Ollama config changed since the last serve, restart `serve` (it reads the profile only at startup) |
 
 **Toggle duty without restarting serve:**
 
 ```bash
-go run ./cmd/seller duty off --control-url <CONTROL_URL> --email <EMAIL> --password '<PASSWORD>'
-go run ./cmd/seller duty on  --control-url <CONTROL_URL> --email <EMAIL> --password '<PASSWORD>'
+go run ./cmd/seller duty off --email <EMAIL> --password '<PASSWORD>'
+go run ./cmd/seller duty on  --email <EMAIL> --password '<PASSWORD>'
 ```
+
+**Stop serving the public mesh:** `pkill -f 'go run ./cmd/seller'` or `seller duty off`. While the seller is on duty, public buyers can route real prompts to your Ollama instance.
 
 ---
 
@@ -561,12 +605,13 @@ docker run --rm -p 4001:4001/tcp -p 4001:4001/udp \
 ## Known gotchas for agents
 
 1. **Module path mismatch.** `go.mod` declares `github.com/knowledgemeshgrid/knowledgemesh`; the repo is at `github.com/Knowledge-Mesh/knowledgeMesh`. Neither path is `go install`-able — clone and `go build`.
-2. **Default `--control-url`.** When omitted, defaults to `http://127.0.0.1:8090` and prints a warning. Pass it explicitly to silence the warning and to make logs unambiguous about which control plane is in use.
-3. **Default public relays only when `--control-url` is omitted.** Passing `--control-url` disables the implicit defaults — supply `--relay` or `LIBP2P_STATIC_RELAYS` explicitly if you need them.
-4. **`seller serve` reads Ollama config once, at startup.** After `PUT .../ollama`, restart `seller serve`.
-5. **Settlement is idempotent per `requestId`.** Retrying a `complete` call with the same `requestId` is safe; it does not double-charge.
-6. **`schema_migrations` is auto-managed.** Don't edit by hand. Use `migrate force <VERSION>` only after restoring from backup, when you know the DB and files are in sync.
-7. **`old_code_archive` branch on `origin` is not canonical.** Ignore it.
-8. **`cmd/demo run` is a placeholder.** It is listed in the CLI overview but doesn't do anything useful yet.
-9. **Empty `docs/` on `main`.** All current docs live in this file, [README.md](./README.md), and [ARCHITECTURE.md](./ARCHITECTURE.md). The `docs/` directory exists for future use.
-10. **No CI / no Makefile.** Canonical build / test commands live here and in [CONTRIBUTING.md](./CONTRIBUTING.md): `go build ./...` and `go test ./...`. There is no `make build` / `make test`.
+2. **Default `--control-url` is the hosted public mesh.** When omitted, every buyer/seller CLI command resolves to `http://control.p2pinfer.cloud:8090` (see [`internal/control/defaults.go`](./internal/control/defaults.go)) and logs `warning: no --control-url specified; using default ...`. The warning is expected — it tells the user where their request is going. Pass `--control-url` explicitly to switch to a private control pane (e.g. `--control-url http://127.0.0.1:8090` for Path 3).
+3. **The README's `--control-url` default is documented incorrectly.** Both `README.md` (on `main` and on `fix/docs`) claim the default is `http://127.0.0.1:8090`. The actual default is the hosted public mesh URL above. Trust the code, not that line.
+4. **Default public relays only when `--control-url` is omitted.** Passing `--control-url` disables the implicit defaults — supply `--relay` or `LIBP2P_STATIC_RELAYS` explicitly if you need them.
+5. **`seller serve` reads Ollama config once, at startup.** After `PUT .../ollama`, restart `seller serve`.
+6. **Settlement is idempotent per `requestId`.** Retrying a `complete` call with the same `requestId` is safe; it does not double-charge.
+7. **`schema_migrations` is auto-managed.** Don't edit by hand. Use `migrate force <VERSION>` only after restoring from backup, when you know the DB and files are in sync.
+8. **`old_code_archive` branch on `origin` is not canonical.** Ignore it.
+9. **`cmd/demo run` is a placeholder.** It is listed in the CLI overview but doesn't do anything useful yet.
+10. **Empty `docs/` on `main`.** All current docs live in this file, [README.md](./README.md), and [ARCHITECTURE.md](./ARCHITECTURE.md). The `docs/` directory exists for future use.
+11. **No CI / no Makefile.** Canonical build / test commands live here and in [CONTRIBUTING.md](./CONTRIBUTING.md): `go build ./...` and `go test ./...`. There is no `make build` / `make test`.
