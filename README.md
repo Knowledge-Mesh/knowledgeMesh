@@ -4,6 +4,8 @@ knowledgeMesh is a minimal open-source scaffold for a modular marketplace-style 
 
 **Architecture and request flows** (components, PostgreSQL, matchmaking, billing, libp2p) are documented in [ARCHITECTURE.md](./ARCHITECTURE.md), including **Mermaid diagrams** (system context, runtime processes, code layers, billing flow — see *Visual architecture* at the top of that file).
 
+> **Setting up via an autonomous coding agent?** See [AGENTS.md](./AGENTS.md). It tells the agent to ask you which of three onboarding paths to take (buyer with defaults, seller with defaults, or full local mesh) and walks each one end-to-end with health checks. The Advanced section there also keeps the operational reference (HTTP routes, env vars, libp2p protocols, P2P debug, NAT/relay, manual migrations, systemd, Docker).
+
 ## Tech
 
 - Go **1.24+** (see `go.mod`)
