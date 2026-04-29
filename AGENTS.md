@@ -4,6 +4,31 @@ This file is the entry point for autonomous coding agents (Claude Code, Cursor, 
 
 If you are a human, this file is also a useful index — but you may prefer the [README](./README.md) and [ARCHITECTURE.md](./ARCHITECTURE.md).
 
+## Quick start — buyer with defaults (hosted public mesh)
+
+The shortest path to real LLM output. If the user said *"just show me"* or hasn't expressed a preference, run this; otherwise see [What you must do first](#what-you-must-do-first) below and offer them the three options.
+
+```bash
+# 0. Confirm the hosted public control pane is up.
+curl -s http://control.p2pinfer.cloud:8090/healthz   # expect: {"module":"control","status":"ok"}
+
+# 1. Fresh credentials (the public DB is shared — emails must be unique).
+export EMAIL="buyer-$(openssl rand -hex 4)@example.com"
+export PASSWORD="$(openssl rand -base64 24)"
+
+# 2. Register, start the buyer in the background, run a real prompt.
+go run ./cmd/buyer register --name "Demo Buyer" --email "$EMAIL" --password "$PASSWORD"
+go run ./cmd/buyer serve    --email "$EMAIL" --password "$PASSWORD" &
+sleep 6
+go run ./cmd/buyer prompt   --email "$EMAIL" --password "$PASSWORD" \
+  --api-url http://127.0.0.1:8080 \
+  --prompt 'Write a short haiku about distributed systems.'
+```
+
+Surface `$EMAIL` and `$PASSWORD` back to the user — they need both to re-`serve` later. **Privacy note to surface up front:** prompts traverse a public control pane and a third-party seller; do not send sensitive data on this path.
+
+For the full flow — success criteria, failure modes, and an offline mock-sandbox fallback when `control.p2pinfer.cloud` is unreachable — see [Path 1](#path-1--buyer-with-defaults-hosted-public-mesh) below.
+
 ---
 
 ## What you must do first

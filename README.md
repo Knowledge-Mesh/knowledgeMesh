@@ -6,6 +6,42 @@ knowledgeMesh is a minimal open-source scaffold for a modular marketplace-style 
 
 > **Setting up via an autonomous coding agent?** See [AGENTS.md](./AGENTS.md). It tells the agent to ask you which of three onboarding paths to take (buyer with defaults, seller with defaults, or full local mesh) and walks each one end-to-end with health checks. The Advanced section there also keeps the operational reference (HTTP routes, env vars, libp2p protocols, P2P debug, NAT/relay, manual migrations, systemd, Docker).
 
+## Quick start — buyer connecting to the hosted public mesh
+
+Real LLM output in three commands. The buyer registers on the hosted public control pane at `http://control.p2pinfer.cloud:8090` (the default baked into [`internal/control/defaults.go`](./internal/control/defaults.go) when `--control-url` is omitted) and runs a real prompt against whichever seller is on duty there. Only outbound internet is required — no local PostgreSQL, no Ollama, no seller process on your box.
+
+Pick a fresh email (the public database is shared, so emails must be unique) and a password you can remember — you will need both to re-`serve` later.
+
+```bash
+# 0. Confirm the public mesh is reachable.
+curl -s http://control.p2pinfer.cloud:8090/healthz
+# expect: {"module":"control","status":"ok"}
+
+# 1. Register a buyer.
+go run ./cmd/buyer register \
+  --name "Demo Buyer" \
+  --email demo-buyer@example.com \
+  --password 'change-me'
+
+# 2. Start the buyer mesh process (leave running, or background with &).
+go run ./cmd/buyer serve \
+  --email demo-buyer@example.com \
+  --password 'change-me'
+
+# 3. In a second terminal, send a real prompt.
+go run ./cmd/buyer prompt \
+  --email demo-buyer@example.com \
+  --password 'change-me' \
+  --api-url http://127.0.0.1:8080 \
+  --prompt 'Write a short haiku about distributed systems.'
+```
+
+Each command logs `warning: no --control-url specified; using default http://control.p2pinfer.cloud:8090` — that is expected and confirms you are on the public mesh. Pass `--control-url http://127.0.0.1:8090` (or any other URL) to point at a private control pane instead.
+
+> **Privacy:** your prompt text and the seller's reply traverse a shared control pane and a third-party Ollama instance. Do not send sensitive data on this path.
+
+Want a different setup — host a seller of your own on the public mesh, or run a fully local mesh? See [AGENTS.md](./AGENTS.md). It covers all three paths (buyer-defaults, seller-defaults, own-mesh) with explicit success criteria and failure modes.
+
 ## Tech
 
 - Go **1.24+** (see `go.mod`)
